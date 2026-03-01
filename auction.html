@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="icon" href="data:,">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>BFL Auction — Live</title>
+  <link rel="stylesheet" href="css/styles.css?v=21">
+</head>
+<body>
+
+<div class="toast-container" id="toast-container"></div>
+
+<!-- Navbar -->
+<nav class="navbar" id="main-nav">
+  <div class="navbar-logo">🏏 BFL</div>
+  <div class="navbar-info">
+    <span id="team-name" class="navbar-team">
+      <span class="skel" style="width:110px;height:15px;display:inline-block;vertical-align:middle;"></span>
+    </span>
+    <span id="advantage-badge" class="advantage-badge" style="display:none;">⭐ Advantage</span>
+    <span id="rtm-badge" class="rtm-badge" style="display:none;"></span>
+  </div>
+  <div class="navbar-right">
+    <div class="purse-display" id="purse-display">
+      <span class="skel" style="width:80px;height:16px;display:inline-block;border-radius:4px;"></span>
+    </div>
+    <span id="auction-status" class="status-badge status-waiting">—</span>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- Stats bar -->
+  <div id="stats-skeleton" class="stats-row" style="padding-top:14px;">
+    <div class="stat-chip"><div class="skel skel-chip"></div></div>
+    <div class="stat-chip"><div class="skel skel-chip"></div></div>
+    <div class="stat-chip"><div class="skel skel-chip"></div></div>
+    <div class="stat-chip"><div class="skel skel-chip"></div></div>
+    <div class="stat-chip"><div class="skel skel-chip"></div></div>
+  </div>
+  <div id="stats-real" class="stats-row" style="display:none;padding-top:14px;">
+    <div class="stat-chip"><div class="stat-chip-val" id="as-total">—</div><div class="stat-chip-lbl">Total</div></div>
+    <div class="stat-chip"><div class="stat-chip-val" id="as-sold">—</div><div class="stat-chip-lbl">Sold</div></div>
+    <div class="stat-chip"><div class="stat-chip-val" id="as-unsold">—</div><div class="stat-chip-lbl">Unsold</div></div>
+    <div class="stat-chip"><div class="stat-chip-val" id="as-remaining">—</div><div class="stat-chip-lbl">Remaining</div></div>
+    <div class="stat-chip"><div class="stat-chip-val" id="as-spent">—</div><div class="stat-chip-lbl">Spent (Cr)</div></div>
+  </div>
+
+  <div class="auction-grid">
+
+    <!-- LEFT: Live Auction -->
+    <div class="auction-main">
+      <div class="card">
+        <div class="card-title">Live Auction</div>
+
+        <!-- Skeleton -->
+        <div id="auction-skeleton">
+          <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:18px;">
+            <div class="skel" style="width:80px;height:80px;border-radius:50%;flex-shrink:0;"></div>
+            <div style="flex:1;">
+              <div class="skel" style="width:70%;height:28px;margin-bottom:10px;border-radius:6px;"></div>
+              <div class="skel skel-text" style="width:90%;"></div>
+              <div style="display:flex;gap:6px;margin-top:8px;">
+                <div class="skel" style="width:64px;height:22px;border-radius:4px;"></div>
+                <div class="skel" style="width:56px;height:22px;border-radius:4px;"></div>
+              </div>
+            </div>
+          </div>
+          <div class="skel" style="height:130px;border-radius:8px;margin-bottom:12px;"></div>
+          <div style="display:flex;gap:8px;">
+            <div class="skel" style="flex:1;height:42px;border-radius:8px;"></div>
+            <div class="skel" style="width:80px;height:42px;border-radius:8px;"></div>
+          </div>
+        </div>
+
+        <!-- Last result — always visible above current auction -->
+        <div id="last-result-container"></div>
+
+        <!-- Waiting state -->
+        <div id="no-auction" style="display:none;">
+          <div id="no-auction-msg" class="no-auction-msg">Waiting for auction to start…</div>
+          <div id="mini-history-wrap"></div>
+        </div>
+
+        <!-- RTM Pending -->
+        <div id="rtm-pending" style="display:none;"></div>
+
+        <!-- Live player card -->
+        <div id="player-card" style="display:none;">
+          <div class="player-card-inner">
+            <img id="player-img" class="player-avatar-lg" src="" alt="" style="display:none;"
+              onerror="this.onerror=null;if(window._SIL){this.src=window._SIL;}else{this.style.display='none';}">
+            <div class="player-info-text">
+              <div id="player-name" class="player-name">—</div>
+              <div class="player-meta">
+                <span>🎭 <span id="player-role">—</span></span>
+                <span>🏏 <span id="player-team">—</span></span>
+                <span>📁 <span id="player-set">—</span></span>
+                <span>💰 Base: <span id="player-base">—</span></span>
+              </div>
+              <div id="player-flags" class="player-flags"></div>
+            </div>
+          </div>
+
+          <div class="bid-area">
+            <div class="timer-wrap">
+              <div class="timer-label">Time Left</div>
+              <div class="timer" id="timer">—</div>
+            </div>
+            <div class="bid-stats">
+              <div class="bid-stat">
+                <div class="bid-stat-label">Highest Bid</div>
+                <div class="bid-stat-value" id="current-bid">—</div>
+                <div class="bid-stat-sub" id="leading-team">—</div>
+              </div>
+              <div class="bid-stat">
+                <div class="bid-stat-label">2nd Highest</div>
+                <div class="bid-stat-value second" id="second-bid">—</div>
+                <div class="bid-stat-sub" id="second-team">—</div>
+              </div>
+            </div>
+            <div class="bid-row">
+              <input class="form-input" type="number" id="bid-input" placeholder="Amount (Cr)" step="0.25" min="0.5">
+              <button class="btn btn-gold" id="bid-btn" onclick="placeBid()">Bid</button>
+              <button class="btn btn-ghost" id="undo-bid-btn" onclick="undoBid()" style="display:none;">↩ Undo</button>
+            </div>
+            <div id="bid-error" class="error-msg"></div>
+            <div class="info-msg">Bids must be multiples of ₹0.25 Cr · Press Enter to bid</div>
+          </div>
+
+          <div id="mini-history-wrap-live"></div>
+        </div>
+
+        <!-- Set auction view -->
+        <div id="set-auction-view" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: My Squad -->
+    <div class="squad-sidebar">
+      <div class="card">
+        <div class="squad-header">
+          <div class="card-title" style="margin:0;border:none;padding:0;">My Squad</div>
+          <div class="squad-meta">
+            <div class="squad-count" id="squad-count">
+              <span class="skel" style="width:44px;height:16px;display:inline-block;border-radius:4px;"></span>
+            </div>
+            <div class="squad-spent" id="squad-spent">
+              <span class="skel" style="width:80px;height:12px;display:inline-block;border-radius:4px;"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="squad-skeleton" style="margin-top:8px;">
+          <div class="skel skel-row"></div>
+          <div class="skel skel-row"></div>
+          <div class="skel skel-row" style="width:85%;"></div>
+        </div>
+
+        <div class="table-wrap" id="squad-table-wrap" style="max-height:420px;overflow:auto;display:none;">
+          <table class="data-table squad-table" style="min-width:360px;">
+            <thead><tr><th style="width:28px;">#</th><th>Player &amp; Tags</th><th>Role</th><th>IPL</th><th>Paid</th></tr></thead>
+            <tbody id="squad-tbody">
+              <tr><td colspan="5" class="empty-cell">No players yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="squad-comp"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/localstorage-shim.js?v=18"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script src="js/modal.js?v=18"></script>
+<script src="js/supabaseClient.js?v=18"></script>
+<script src="js/auction.js?v=21"></script>
+</body>
+</html>

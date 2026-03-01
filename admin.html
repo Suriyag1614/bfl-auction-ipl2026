@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="icon" href="data:,">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <title>BFL Auction — Admin</title>
+  <link rel="stylesheet" href="css/styles.css?v=22">
+</head>
+<body>
+
+<div class="toast-container" id="toast-container"></div>
+
+<nav class="navbar" id="main-nav">
+  <div class="navbar-logo">BFL</div>
+  <div class="navbar-info"><strong>Admin</strong></div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
+    <span id="autopilot-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;"></span>
+    <span id="autopilot-label">Autopilot OFF</span>
+  </div>
+  <div class="navbar-right">
+    <span class="conn-dot" id="conn-dot"></span>
+    <span id="auction-status" class="status-badge status-waiting">Waiting</span>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- Stats -->
+  <div style="padding-top:16px;padding-bottom:4px;">
+    <div id="stats-skeleton" class="stats-row">
+      <div class="stat-chip"><div class="skel skel-chip"></div></div>
+      <div class="stat-chip"><div class="skel skel-chip"></div></div>
+      <div class="stat-chip"><div class="skel skel-chip"></div></div>
+      <div class="stat-chip"><div class="skel skel-chip"></div></div>
+      <div class="stat-chip"><div class="skel skel-chip"></div></div>
+    </div>
+    <div id="stats-real" class="stats-row" style="display:none;">
+      <div class="stat-chip"><div class="stat-chip-val" id="stat-total">0</div><div class="stat-chip-lbl">Players</div></div>
+      <div class="stat-chip"><div class="stat-chip-val" id="stat-sold">0</div><div class="stat-chip-lbl">Sold</div></div>
+      <div class="stat-chip"><div class="stat-chip-val" id="stat-unsold">0</div><div class="stat-chip-lbl">Unsold</div></div>
+      <div class="stat-chip"><div class="stat-chip-val" id="stat-remaining">0</div><div class="stat-chip-lbl">Remaining</div></div>
+      <div class="stat-chip"><div class="stat-chip-val" id="stat-spent">0</div><div class="stat-chip-lbl">Total Cr Spent</div></div>
+    </div>
+  </div>
+
+  <div class="admin-grid">
+
+    <!-- LEFT: Current Auction -->
+    <div>
+      <div class="card">
+        <div class="card-title">Current Auction</div>
+
+        <!-- Skeleton -->
+        <div id="auction-skeleton">
+          <div style="display:flex;gap:12px;margin-bottom:14px;">
+            <div class="skel" style="width:76px;height:76px;border-radius:50%;flex-shrink:0;"></div>
+            <div style="flex:1;">
+              <div class="skel skel-title"></div>
+              <div class="skel skel-text"></div>
+              <div style="display:flex;gap:6px;margin-top:6px;">
+                <div class="skel" style="width:55px;height:20px;border-radius:4px;"></div>
+                <div class="skel" style="width:50px;height:20px;border-radius:4px;"></div>
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;margin-bottom:12px;">
+            <div class="skel skel-row" style="height:62px;"></div>
+            <div class="skel skel-row" style="height:62px;"></div>
+            <div class="skel" style="width:88px;height:62px;border-radius:8px;"></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <div class="skel" style="width:95px;height:34px;border-radius:8px;"></div>
+            <div class="skel" style="width:120px;height:34px;border-radius:8px;"></div>
+            <div class="skel" style="width:85px;height:34px;border-radius:8px;"></div>
+          </div>
+        </div>
+
+        <!-- Live block (hidden until player active) -->
+        <div id="live-block" style="display:none;">
+          <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px;">
+            <img id="cp-img" class="player-avatar-lg" src="" alt="" style="display:none;" onerror="this.onerror=null;this.style.display='none'">
+            <div style="flex:1;min-width:0;">
+              <div id="cp-name" style="font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;line-height:1;margin-bottom:4px;"></div>
+              <div id="cp-meta" style="font-size:12px;color:var(--muted);margin-bottom:6px;"></div>
+              <div id="cp-flags" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+            </div>
+          </div>
+          <div class="live-row">
+            <div class="bid-stat">
+              <div class="bid-stat-label">Highest Bid</div>
+              <div class="bid-stat-value" id="current-bid">—</div>
+              <div class="bid-stat-sub"  id="leading-team">—</div>
+            </div>
+            <div class="bid-stat">
+              <div class="bid-stat-label">2nd Highest</div>
+              <div class="bid-stat-value second" id="second-bid">—</div>
+              <div class="bid-stat-sub"           id="second-team">—</div>
+            </div>
+            <div class="timer-block">
+              <div class="timer-label">Timer</div>
+              <span class="timer" id="timer">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="no-player" style="color:var(--muted);font-size:14px;display:none;">Select a player below to start.</div>
+        <div id="admin-error" class="error-msg" style="min-height:0;"></div>
+
+        <div class="admin-controls" id="admin-controls" style="display:none;">
+          <button class="btn btn-gold"   id="pause-btn"      style="display:none;" onclick="pauseAuction()">⏸ Pause</button>
+          <button class="btn btn-blue"   id="resume-btn"     style="display:none;" onclick="resumeAuction()">▶ Resume</button>
+          <button class="btn btn-danger" id="force-sell-btn" style="display:none;" onclick="forceSell()">🔨 Force Sell</button>
+          <button class="btn btn-ghost btn-sm" id="autopilot-btn" onclick="toggleAutopilot()">🤖 Autopilot: OFF</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetState()">↺ Reset State</button>
+          <button class="btn btn-warning btn-sm" id="reset-set-btn" onclick="resetSet()" style="display:none;">⚡ Reset Set</button>
+          <div style="margin-left:auto;display:flex;gap:6px;">
+            <button class="btn btn-warning btn-sm" onclick="resetDay()">🔄 Reset Day</button>
+            <button class="btn btn-danger btn-sm" onclick="restartAuction()">⚠️ Full Restart</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Teams -->
+    <div>
+      <div class="card">
+        <div class="card-title">Teams</div>
+        <div id="teams-skeleton">
+          <div class="skel skel-row"></div>
+          <div class="skel skel-row"></div>
+          <div class="skel skel-row" style="width:80%;"></div>
+        </div>
+        <div class="table-wrap" id="teams-table-wrap" style="max-height:320px;display:none;">
+          <table class="data-table">
+            <thead><tr><th>Team</th><th>Purse</th><th>Squad</th><th class="hide-sm">OS</th></tr></thead>
+            <tbody id="teams-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- FULL: Tabs -->
+    <div class="admin-full">
+      <div class="card">
+        <!-- Tab skeleton -->
+        <div id="tabs-skeleton">
+          <div style="display:flex;gap:8px;border-bottom:2px solid var(--border);padding-bottom:0;margin-bottom:16px;">
+            <div class="skel" style="width:80px;height:30px;border-radius:4px 4px 0 0;"></div>
+            <div class="skel" style="width:110px;height:30px;border-radius:4px 4px 0 0;"></div>
+            <div class="skel" style="width:80px;height:30px;border-radius:4px 4px 0 0;"></div>
+            <div class="skel" style="width:75px;height:30px;border-radius:4px 4px 0 0;"></div>
+          </div>
+          <div class="skel skel-row"></div>
+          <div class="skel skel-row"></div>
+          <div class="skel skel-row" style="width:70%;"></div>
+          <div class="skel skel-row" style="width:85%;"></div>
+          <div class="skel skel-row" style="width:55%;"></div>
+        </div>
+
+        <!-- Real tabs -->
+        <div id="tabs-real" style="display:none;">
+          <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('players')">Players</button>
+            <button class="tab-btn" onclick="switchTab('sets')">Set Launcher</button>
+            <button class="tab-btn" onclick="switchTab('history')">History</button>
+            <button class="tab-btn" onclick="switchTab('squads')">Squads</button>
+            <button class="tab-btn" onclick="switchTab('retentions')">Retentions</button>
+          </div>
+
+          <!-- PLAYERS -->
+          <div class="tab-panel active" id="tab-players">
+            <div class="filters-bar">
+              <input class="form-input" type="text" id="player-search" placeholder="🔍 Name / role / team…" style="width:200px;" oninput="renderPlayerList()">
+              <select class="form-input" id="filter-set"    style="width:120px;" onchange="renderPlayerList()"><option value="">All Sets</option></select>
+              <select class="form-input" id="filter-role"   style="width:145px;" onchange="renderPlayerList()">
+                <option value="">All Roles</option><option>Batsman</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
+              </select>
+              <select class="form-input" id="filter-status" style="width:130px;" onchange="renderPlayerList()">
+                <option value="">All Status</option><option value="available">Available</option><option value="sold">Sold</option><option value="unsold">Unsold</option>
+              </select>
+              <button class="filter-tag" id="ft-overseas" onclick="toggleFilter('overseas')">Overseas</button>
+              <button class="filter-tag" id="ft-uncapped" onclick="toggleFilter('uncapped')">Uncapped</button>
+              <button class="filter-tag" id="ft-rtm"      onclick="toggleFilter('rtm')">RTM</button>
+              <button class="btn btn-ghost btn-sm" onclick="clearFilters()">Clear</button>
+            </div>
+            <div class="table-wrap" style="max-height:420px;overflow:auto;">
+              <table class="data-table" style="min-width:800px;">
+                <colgroup>
+                  <col style="width:44px;">
+                  <col style="width:150px;">
+                  <col style="width:110px;">
+                  <col style="width:110px;">
+                  <col style="width:90px;">
+                  <col style="width:70px;">
+                  <col style="width:110px;">
+                  <col style="min-width:140px;">
+                  <col style="width:100px;">
+                </colgroup>
+                <thead><tr>
+                  <th></th>
+                  <th onclick="sortBy('name')">Name</th>
+                  <th onclick="sortBy('role')">Role</th>
+                  <th onclick="sortBy('ipl_team')">IPL Team</th>
+                  <th onclick="sortBy('set_name')">Set</th>
+                  <th onclick="sortBy('base_price')">Base</th>
+                  <th>Tags</th><th>Status</th><th>Action</th>
+                </tr></thead>
+                <tbody id="players-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- SET LAUNCHER -->
+          <div class="tab-panel" id="tab-sets">
+            <div id="set-launcher-wrap">
+              <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+                ⚡ <strong>Set Auction</strong> — launches all players in a set simultaneously. All teams bid on any player at the same time. One shared timer for the whole set. Admin closes all at once.
+              </p>
+              <div id="set-launcher"></div>
+            </div>
+          </div>
+
+          <!-- HISTORY -->
+          <div class="tab-panel" id="tab-history">
+            <div class="filters-bar">
+              <input class="form-input" type="text" id="history-search" placeholder="🔍 Player / team…" style="width:190px;" oninput="renderHistory()">
+              <select class="form-input" id="history-filter" style="width:130px;" onchange="renderHistory()">
+                <option value="">All</option><option value="sold">Sold</option><option value="unsold">Unsold</option>
+              </select>
+              <select class="form-input" id="history-role" style="width:150px;" onchange="renderHistory()">
+                <option value="">All Roles</option><option>Batsman</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
+              </select>
+            </div>
+            <div class="table-wrap" style="max-height:420px;overflow:auto;">
+              <table class="data-table" style="min-width:780px;">
+                <colgroup>
+                  <col style="width:160px;">
+                  <col style="width:100px;">
+                  <col style="width:100px;">
+                  <col style="width:65px;">
+                  <col style="width:120px;">
+                  <col style="width:90px;">
+                  <col style="width:70px;">
+                  <col style="width:100px;">
+                  <col style="width:50px;">
+                </colgroup>
+                <thead id="history-thead"><tr>
+                  <th data-hkey="player_name" onclick="sortHistory('player_name')">Player</th>
+                  <th data-hkey="role"        onclick="sortHistory('role')">Role</th>
+                  <th data-hkey="ipl_team"    onclick="sortHistory('ipl_team')">IPL</th>
+                  <th data-hkey="base_price"  onclick="sortHistory('base_price')">Base</th>
+                  <th data-hkey="sold_to"     onclick="sortHistory('sold_to')">Sold To</th>
+                  <th data-hkey="sold_price"  onclick="sortHistory('sold_price')">Sold For</th>
+                  <th data-hkey="status"      onclick="sortHistory('status')">Status</th>
+                  <th data-hkey="sold_at"     onclick="sortHistory('sold_at')">Time ↕</th>
+                  <th>Undo</th>
+                </tr></thead>
+                <tbody id="history-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- SQUADS -->
+          <div class="tab-panel" id="tab-squads">
+            <div class="filters-bar">
+              <select class="form-input" id="squad-team-select" style="width:220px;" onchange="renderSquadView()">
+                <option value="">Select Team…</option>
+              </select>
+            </div>
+            <div id="squad-view-content"><div class="empty-cell">Select a team above.</div></div>
+          </div>
+
+          <!-- RETENTIONS -->
+          <div class="tab-panel" id="tab-retentions">
+            <div id="retention-content"><div class="empty-cell">Loading…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/localstorage-shim.js?v=18"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script src="js/modal.js?v=18"></script>
+<script src="js/supabaseClient.js?v=18"></script>
+<script src="js/admin.js?v=22"></script>
+</body>
+</html>
