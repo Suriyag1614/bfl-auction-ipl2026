@@ -383,6 +383,7 @@ async function restartAuction() {
     }
 
     // Step 6: reset auction_state (single row, WHERE id=1)
+    // NOTE: use null for uuid[] column (not []) — Supabase client throws on []
     const { error: e5 } = await sb.from('auction_state').update({
       status: 'waiting',
       current_player_id: null,
@@ -393,7 +394,7 @@ async function restartAuction() {
       bid_timer_end: null,
       rtm_pending: false,
       rtm_team_id: null,
-      unsold_player_ids: [],
+      unsold_player_ids: '{}',
       last_player_id: null,
       last_player_result: null,
       last_sold_to_team: null,
@@ -1105,7 +1106,9 @@ function renderLiveSetPanel() {
   const slotCards = activeSetSlots.map(slot => {
     const player  = allPlayers.find(p => p.id === slot.player_id) || {};
     const hasBid  = slot.current_highest_bid > 0;
-    const leadTeam= slot._highest_team?.team_name || '—';
+    const has2nd  = slot.second_highest_bid > 0;
+    const leadTeam  = slot._highest_team?.team_name || '—';
+    const secondTeam = slot._second_team?.team_name || '';
     return `<div style="background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;padding:12px;flex:1;min-width:160px;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
         <img src="${player.image_url||''}" onerror="this.style.display='none'" alt=""
@@ -1119,6 +1122,7 @@ function renderLiveSetPanel() {
         ${hasBid ? fmt(slot.current_highest_bid) : 'No bids'}
       </div>
       ${hasBid ? `<div style="font-size:11px;color:var(--muted);">${leadTeam}</div>` : ''}
+      ${has2nd ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;">2nd: ${fmt(slot.second_highest_bid)}${secondTeam?' · '+secondTeam:''}</div>` : ''}
     </div>`;
   }).join('');
 
@@ -1171,10 +1175,10 @@ async function closeSetAuction() {
 
 async function loadSetSlots(setName) {
   const { data, error } = await sb.from('auction_slots')
-    .select('*, highest_team:teams!auction_slots_current_highest_team_id_fkey(team_name)')
+    .select('*, highest_team:teams!auction_slots_current_highest_team_id_fkey(team_name), second_team:teams!auction_slots_second_highest_team_id_fkey(team_name)')
     .eq('set_name', setName).eq('status', 'live');
   if (error) { console.warn('[SetSlots]', error.message); return; }
-  activeSetSlots = (data||[]).map(s => ({ ...s, _highest_team: s.highest_team }));
+  activeSetSlots = (data||[]).map(s => ({ ...s, _highest_team: s.highest_team, _second_team: s.second_team }));
 }
 
 function subscribeSetSlots(setName) {
