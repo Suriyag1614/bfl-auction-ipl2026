@@ -276,15 +276,22 @@ function clearFilters() {
 // ─── AUCTION CONTROLS ─────────────────────────────────────────
 async function startAuction(playerId) {
   clearError();
-  // Check if confirming a force-start (player already up)
-  const msg = currentState?.status === 'live'
-    ? `Another player is live. Override and start this one?`
-    : null;
-  if (msg && !await confirm2(msg, { title:'Start Auction', icon:'▶' })) return;
-  const { data, error } = await sb.rpc('start_auction', { p_player_id: playerId });
+  let forceOverride = false;
+  const liveStatus = currentState?.status;
+  if (liveStatus === 'live' || liveStatus === 'set_live') {
+    const ok = await confirm2(
+      liveStatus === 'set_live'
+        ? 'A set auction is live. Force-start this player anyway?'
+        : 'Another player is live. Force-start this one instead?',
+      { title:'Force Start', icon:'▶', danger:true }
+    );
+    if (!ok) return;
+    forceOverride = true;
+  }
+  const { data, error } = await sb.rpc('start_auction', { p_player_id: playerId, p_force: forceOverride });
   if (error) return showError(error.message);
-  if (!data.success) return showError(data.error);
-  toast('Auction started', 'success');
+  if (!data?.success) return showError(data?.error || 'Error');
+  toast('▶ Started: ' + (data.player||''), 'success');
   await loadAuctionState(); renderPlayerList();
 }
 
@@ -501,6 +508,15 @@ async function toggleAutopilot() {
   renderAutopilotBtn();
   toast(newVal ? '🤖 Autopilot ON' : '🤖 Autopilot OFF', newVal ? 'success' : 'warn');
 }
+async function setAutopilotDelay(seconds) {
+  const s = parseInt(seconds);
+  if (isNaN(s)) return;
+  const { data, error } = await sb.rpc('set_autopilot_delay', { p_seconds: s });
+  if (error) return showError(error.message);
+  if (!data?.success) return showError(data?.error || 'Error');
+  toast('Auto-sell delay: ' + s + 's', 'info');
+}
+
 function renderAutopilotBtn() {
   const btn = el('autopilot-btn');
   const dot = el('autopilot-dot');
@@ -624,18 +640,35 @@ function renderRTMAdminBlock(state) {
     if (controls) controls.insertBefore(block, controls.firstChild);
   }
   if (state.rtm_pending) {
+    const deadlineMs = state.rtm_deadline ? new Date(state.rtm_deadline).getTime() : null;
+    const remInit = deadlineMs ? Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000)) : null;
     block.innerHTML = `
-      <div class="rtm-admin-banner">
+      <div class="rtm-admin-banner" style="position:relative;">
+        ${remInit !== null ? `<div id="rtm-admin-countdown" style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--gold);position:absolute;top:10px;right:12px;">${remInit}s</div>` : ''}
         <span class="rtm-admin-title">🔄 RTM PENDING</span>
-        <span class="rtm-admin-sub">${state.rtm_team?.team_name || '?'} · Match: <strong>${fmt(state.rtm_match_price||0)}</strong></span>
+        <span class="rtm-admin-sub">${state.rtm_team?.team_name || '?'} · Match: <strong>${fmt(state.rtm_match_price||0)}</strong>${remInit !== null ? ' · <span style="color:var(--muted);font-size:11px;">auto-declines when timer hits 0</span>' : ''}</span>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button class="btn btn-gold btn-sm" onclick="adminExerciseRTM(true)">✓ Accept RTM</button>
           <button class="btn btn-ghost btn-sm" onclick="adminExerciseRTM(false)">✗ Decline</button>
         </div>
       </div>`;
+    if (deadlineMs) startAdminRTMCountdown(deadlineMs);
   } else {
     block.innerHTML = '';
   }
+}
+
+let adminRTMInterval = null;
+function startAdminRTMCountdown(endMs) {
+  clearInterval(adminRTMInterval);
+  adminRTMInterval = setInterval(() => {
+    const t = el('rtm-admin-countdown');
+    if (!t) { clearInterval(adminRTMInterval); return; }
+    const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+    t.textContent = rem + 's';
+    t.style.color = rem <= 10 ? 'var(--danger)' : 'var(--gold)';
+    if (rem <= 0) clearInterval(adminRTMInterval);
+  }, 300);
 }
 
 // ─── TIMER ────────────────────────────────────────────────────

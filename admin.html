@@ -7,7 +7,7 @@
   <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <title>BFL Auction — Admin</title>
-  <link rel="stylesheet" href="css/styles.css?v=22">
+  <link rel="stylesheet" href="css/styles.css?v=24">
 </head>
 <body>
 
@@ -115,6 +115,11 @@
           <button class="btn btn-blue"   id="resume-btn"     style="display:none;" onclick="resumeAuction()">▶ Resume</button>
           <button class="btn btn-danger" id="force-sell-btn" style="display:none;" onclick="forceSell()">🔨 Force Sell</button>
           <button class="btn btn-ghost btn-sm" id="autopilot-btn" onclick="toggleAutopilot()">🤖 Autopilot: OFF</button>
+          <span class="delay-wrap" title="Auto-sell delay (seconds after timer hits 0)">
+            <span style="font-size:11px;color:var(--muted);">Delay:</span>
+            <input type="number" class="form-input" style="width:54px;padding:4px 6px;font-size:12px;" id="autopilot-delay-input" value="12" min="5" max="60" onchange="setAutopilotDelay(this.value)">
+            <span style="font-size:11px;color:var(--muted);">s</span>
+          </span>
           <button class="btn btn-ghost btn-sm" onclick="resetState()">↺ Reset State</button>
           <button class="btn btn-warning btn-sm" id="reset-set-btn" onclick="resetSet()" style="display:none;">⚡ Reset Set</button>
           <div style="margin-left:auto;display:flex;gap:6px;">
@@ -284,10 +289,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=18"></script>
+<script src="js/localstorage-shim.js?v=24"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=18"></script>
-<script src="js/supabaseClient.js?v=18"></script>
-<script src="js/admin.js?v=23"></script>
+<script src="js/modal.js?v=24"></script>
+<script src="js/supabaseClient.js?v=24"></script>
+<script src="js/admin.js?v=24"></script>
 </body>
 </html>
