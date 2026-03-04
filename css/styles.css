@@ -140,6 +140,10 @@ select.form-input{cursor:pointer;}
 .btn-start{background:rgba(240,180,41,0.12);color:var(--gold);border:1px solid var(--gold-dim);}
 .btn-start:hover:not(:disabled){box-shadow:0 4px 20px rgba(240,180,41,0.4);}
 
+/* ── Cancel Set button ───────────────────────────────────────── */
+.btn-cancel-set{display:inline-flex;align-items:center;gap:5px;padding:5px 14px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;background:rgba(229,62,62,0.1);color:#fc8181;border:1px solid rgba(229,62,62,0.35);border-radius:var(--radius);cursor:pointer;transition:all var(--t);white-space:nowrap;}
+.btn-cancel-set:hover{background:rgba(229,62,62,0.2);border-color:var(--red);color:#fff;transform:translateY(-1px);}
+
 /* Messages */
 .error-msg{color:var(--red);font-size:13px;margin-top:5px;min-height:18px;animation:fade-in 0.2s;}
 .success-msg{color:var(--green);font-size:13px;margin-top:5px;}
@@ -176,7 +180,7 @@ select.form-input{cursor:pointer;}
 
 /* Tables */
 .data-table{width:100%;border-collapse:collapse;font-size:14px;}
-.data-table th{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);padding:10px 12px;border-bottom:2px solid var(--border);text-align:left;white-space:nowrap;cursor:pointer;user-select:none;transition:color var(--t);}
+.data-table th{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);padding:10px 12px;border-bottom:2px solid var(--border);text-align:left;white-space:nowrap;cursor:pointer;user-select:none;transition:color var(--t);position:sticky;top:0;background:var(--bg-card);z-index:2;}
 .data-table th:hover{color:var(--text);}
 .data-table th.sort-asc::after{content:' ↑';color:var(--gold);}
 .data-table th.sort-desc::after{content:' ↓';color:var(--gold);}
@@ -189,14 +193,18 @@ select.form-input{cursor:pointer;}
 .row-current td{background:rgba(240,180,41,0.05)!important;}
 .row-retained td{background:rgba(240,180,41,0.04);}
 .empty-cell{text-align:center;color:var(--muted);padding:36px!important;font-size:14px;}
-.table-wrap{overflow-x:auto;overflow-y:auto;}
+.table-wrap{overflow-x:auto;overflow-y:auto;max-width:100%;-webkit-overflow-scrolling:touch;}
+/* Table-wrap needs a max-height for sticky headers to work — set per context */
 .table-wrap::-webkit-scrollbar{width:5px;height:5px;}
 .table-wrap::-webkit-scrollbar-track{background:transparent;}
 .table-wrap::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
 .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted2);}
+/* Avatar cell: never let it shrink in a table */
+.data-table td:has(.player-avatar){white-space:nowrap;width:48px;}
+.data-table .player-avatar{display:inline-block;vertical-align:middle;}
 
 /* Avatars */
-.player-avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;background:var(--border);flex-shrink:0;transition:transform var(--t),box-shadow var(--t);}
+.player-avatar{width:38px;height:38px;min-width:38px;min-height:38px;border-radius:50%;object-fit:cover;background:var(--border);flex-shrink:0;transition:transform var(--t),box-shadow var(--t);}
 .player-avatar:hover{transform:scale(1.12);box-shadow:0 0 10px rgba(240,180,41,0.3);}
 .player-avatar-lg{width:84px;height:84px;border-radius:50%;object-fit:cover;border:3px solid var(--gold-dim);background:var(--border);flex-shrink:0;transition:border-color var(--t-slow),transform var(--t-slow),box-shadow var(--t-slow);}
 .player-avatar-lg:hover{border-color:var(--gold);transform:scale(1.06);box-shadow:var(--shadow-gold);}
@@ -227,8 +235,12 @@ select.form-input{cursor:pointer;}
 .tab-btn{padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);cursor:pointer;white-space:nowrap;transition:color var(--t),border-color var(--t),background var(--t);}
 .tab-btn:hover{color:var(--text2);background:rgba(255,255,255,0.02);}
 .tab-btn.active{color:var(--gold);border-bottom-color:var(--gold);}
-.tab-panel{display:none;animation:fade-in-up 0.28s ease both;}
+.tab-panel{display:none;animation:fade-in-up 0.28s ease both;min-width:0;}
 .tab-panel.active{display:block;}
+/* Admin tables: scroll inside their wrap, sticky headers work */
+#tab-players .data-table{min-width:700px;}
+#tab-history .data-table{min-width:680px;}
+#tab-squads  .data-table{min-width:560px;}
 
 /* Toast */
 .toast-container{position:fixed;top:64px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:9999;max-width:340px;pointer-events:none;}
@@ -249,7 +261,30 @@ select.form-input{cursor:pointer;}
 /* ═══════════════════════════════════════════════════════
    AUCTION — TEAM VIEW
 ═══════════════════════════════════════════════════════ */
-.auction-grid{display:grid;grid-template-columns:1fr 320px;gap:20px;padding:16px 0;}
+.auction-grid{display:grid;grid-template-columns:1fr 320px;gap:20px;padding:16px 0;min-width:0;}
+.auction-grid > *{min-width:0;}
+/* Sidebar: don't use overflow:hidden — it breaks sticky headers inside */
+.squad-sidebar{min-width:0;}
+.squad-sidebar .card{min-width:0;}
+/* Squad table: fixed height, scrollable, sticky headers work */
+.squad-sidebar .squad-table-wrap{max-height:340px;overflow-x:auto;overflow-y:auto;}
+/* All-teams table: fixed height scroll */
+.squad-sidebar #all-teams-card .table-wrap{max-height:300px;overflow-x:auto;overflow-y:auto;}
+/* Compact columns so no horizontal scroll needed in 320px sidebar */
+.squad-sidebar .data-table{width:100%;table-layout:fixed;}
+.squad-sidebar .data-table th,
+.squad-sidebar .data-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:7px 8px;font-size:12px;}
+/* Column widths for My Squad table: #, Player+Tags, Role, IPL, Paid */
+.squad-table col.col-num {width:24px;}
+.squad-table col.col-player{width:auto;}
+.squad-table col.col-role {width:32px;}
+.squad-table col.col-ipl  {width:36px;}
+.squad-table col.col-paid {width:52px;}
+/* Column widths for All Teams table: Team, Purse, Squad, OS */
+.all-teams-table-inner col.col-team {width:auto;}
+.all-teams-table-inner col.col-purse{width:52px;}
+.all-teams-table-inner col.col-sq   {width:40px;}
+.all-teams-table-inner col.col-os   {width:32px;}
 .player-card-inner{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;}
 .player-info{display:flex;gap:14px;align-items:flex-start;flex:1;min-width:0;}
 .player-info-text{flex:1;min-width:0;}
@@ -572,8 +607,11 @@ select.form-input{cursor:pointer;}
 /* ══════════════════════════════
    ADMIN
 ══════════════════════════════ */
-.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:16px 0;}
-.admin-full{grid-column:1/-1;}
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:16px 0;min-width:0;}
+.admin-full{grid-column:1/-1;min-width:0;}
+/* Admin tables: bounded height for sticky headers to work */
+.admin-full .table-wrap{max-height:480px;}
+#teams-table-wrap{max-height:320px;}
 .admin-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);align-items:center;}
 .live-row{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:stretch;margin-bottom:16px;}
 .timer-block{background:rgba(0,0,0,0.3);border-radius:8px;padding:10px 16px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:80px;}
@@ -638,7 +676,7 @@ select.form-input{cursor:pointer;}
 
 @media (max-width: 1024px) {
   .container{padding:0 16px 36px;}
-  .auction-grid{grid-template-columns:1fr 270px;gap:14px;}
+  .auction-grid{grid-template-columns:1fr 260px;gap:14px;}
   .admin-grid{grid-template-columns:1fr;gap:14px;}
   .admin-full{grid-column:1;}
   .player-name{font-size:30px;}
@@ -646,9 +684,21 @@ select.form-input{cursor:pointer;}
   .hide-md{display:none!important;}
   .adv-card-name{font-size:26px;}
 }
+@media (max-width: 900px) {
+  /* Auction: stack sidebar below main content */
+  .auction-grid{grid-template-columns:1fr;gap:12px;}
+  .squad-sidebar{width:100%;}
+  /* Side-by-side squad + all-teams when stacked */
+  .squad-sidebar-inner{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .squad-sidebar .squad-table-wrap{max-height:260px!important;}
+  .squad-sidebar #all-teams-card .table-wrap{max-height:260px!important;}
+  /* Undo fixed column widths — full width is fine when stacked */
+  .squad-sidebar .data-table{table-layout:auto;}
+  .squad-sidebar .data-table th,
+  .squad-sidebar .data-table td{font-size:13px;padding:8px 10px;}
+}
 @media (max-width: 860px) {
   .container{padding:0 12px 28px;}
-  .auction-grid{grid-template-columns:1fr;gap:12px;}
   .player-card-inner{flex-direction:column;gap:14px;}
   .bid-area{min-width:unset;width:100%;}
   .live-row{grid-template-columns:1fr 1fr;}
@@ -660,6 +710,8 @@ select.form-input{cursor:pointer;}
   .tab-btn{padding:8px 14px;font-size:13px;}
   .navbar{gap:8px;}
   .hide-sm{display:none!important;}
+  /* Collapse side-by-side squad layout at 860px */
+  .squad-sidebar-inner{grid-template-columns:1fr;}
 }
 @media (max-width: 620px) {
   :root{--navbar-h:50px;}

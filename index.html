@@ -253,8 +253,11 @@ async function doLogin() {
     if (!tid) { err.textContent='Please select your team first.'; return; }
     btn.disabled=true; btn.textContent='Signing in…';
 
+    // Build email: team_name lowercase with underscores + @bfl.in
+    const tname  = teams.find(t=>t.id===tid)?.team_name || tid;
+    const temail = tname.toLowerCase().replace(/\s+/g,'_') + '@bfl.in';
     const { error } = await sb.auth.signInWithPassword({
-      email: tid + '@bfl.auction', password: pwd
+      email: temail, password: pwd
     });
     if (error) {
       err.textContent='❌ Wrong password. Contact the auctioneer.';
@@ -265,7 +268,7 @@ async function doLogin() {
   } else {
     btn.disabled=true; btn.textContent='Signing in…';
     const { error } = await sb.auth.signInWithPassword({
-      email:'admin@bfl.auction', password: pwd
+      email:'admin@bfl.in', password: pwd
     });
     if (error) {
       err.textContent='❌ Incorrect auctioneer password.';
@@ -330,7 +333,7 @@ function animateBar(ms) {
 }
 
 async function autoRedirect(user) {
-  if (user.app_metadata?.role==='admin') { window.location.href='admin.html'; return; }
+  if (user.app_metadata?.role==='admin' || user.email==='admin@bfl.in') { window.location.href='admin.html'; return; }
   const { data:t } = await sb.from('teams').select('id').eq('user_id',user.id).maybeSingle();
   if (t) { window.location.href='auction.html'; return; }
   await sb.auth.signOut();

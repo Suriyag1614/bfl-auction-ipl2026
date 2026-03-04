@@ -716,14 +716,14 @@ async function loadTeams() {
 
     el('teams-tbody').innerHTML = allTeams.map(t => {
       // If rtm_cards_total=0 and 0 retentions → should be 3; derive from 3-retained if DB is stale
-      const rtmTotal = t.rtm_cards_total || 3; // default 3 (0 retentions → 3 RTM)
-      const rtmRem = Math.max(0, rtmTotal - (t.rtm_cards_used||0));
+      const rtmTotal = (t.rtm_cards_total != null) ? t.rtm_cards_total : 0;
+      const rtmRem   = Math.max(0, rtmTotal - (t.rtm_cards_used||0));
       return `<tr>
-        <td>${t.team_name}${t.is_advantage_holder?' <span class="tag tag-advantage" style="font-size:10px;">ADV</span>':''}
+        <td style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;">${t.team_name}${t.is_advantage_holder?' <span class="tag tag-advantage" style="font-size:10px;">ADV</span>':''}
             ${rtmRem > 0 ? ` <span class="tag tag-rtm" style="font-size:10px;">RTM×${rtmRem}</span>` : ''}</td>
-        <td>${fmt(t.purse_remaining)}</td>
-        <td>${counts[t.id]||0} / 12</td>
-        <td class="hide-sm">${osCounts[t.id]||0} / 4</td>
+        <td style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--gold);">${fmt(t.purse_remaining)}</td>
+        <td style="font-family:'Barlow Condensed',sans-serif;font-size:14px;">${counts[t.id]||0} / 12</td>
+        <td class="hide-sm" style="font-family:'Barlow Condensed',sans-serif;font-size:14px;">${osCounts[t.id]||0} / 4</td>
       </tr>`;
     }).join('');
 
@@ -1187,11 +1187,8 @@ function renderSquadTable(team) {
   const rtn   = squadRows.filter(r=>r.is_retained).length;
   const purse = Number(team?.purse_remaining||0);
   // IPL rule: 0 retained=3 RTM, 1=2, 2=1, 3=0
-  // rtm_cards_total from DB should reflect this, but if 0 (old data), derive from retained count
-  const rtmTotal = (team?.rtm_cards_total > 0 || rtn > 0)
-    ? (team?.rtm_cards_total || Math.max(0, 3 - rtn))
-    : 3; // 0 retentions → 3 RTM cards
-  const rtmRem = Math.max(0, rtmTotal - (team?.rtm_cards_used||0));
+  const rtmTotal = (team?.rtm_cards_total != null) ? team.rtm_cards_total : 0;
+  const rtmRem   = Math.max(0, rtmTotal - (team?.rtm_cards_used||0));
 
   const statBar = `<div class="stats-row" style="margin-bottom:14px;">
     <div class="stat-chip"><div class="stat-chip-val">${squadRows.length}/12</div><div class="stat-chip-lbl">Players</div></div>
@@ -1507,6 +1504,7 @@ function renderLiveSetPanel() {
           <div id="admin-set-timer" class="timer${initRem<=5?' timer-critical':initRem<=10?' timer-warning':''}" style="font-size:34px;">${initRem}s</div>
         </div>
         <button class="btn btn-danger btn-sm" onclick="closeSetAuction()">🔨 Close Set</button>
+        <button class="btn-cancel-set" onclick="cancelSetAuction()" title="Stop set auction without selling — returns all players to available pool">✕ Cancel Set</button>
       </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">${slotCards}</div>
@@ -1523,7 +1521,7 @@ async function launchSetAuction(setName) {
   await loadAuctionState();
   await loadSetSlots(setName);
   subscribeSetSlots(setName);
-  renderSetLauncher();
+  await renderSetLauncher();
 }
 
 async function closeSetAuction() {
@@ -1540,6 +1538,41 @@ async function closeSetAuction() {
   activeSetSlots = [];
   await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]);
   await updateStats(); renderSetLauncher();
+}
+
+async function cancelSetAuction() {
+  const setName = currentState?.current_set_name;
+  if (!setName) return showError('No active set auction');
+  if (!await confirm2(
+    `Cancel the **${setName}** set auction?\n\nAll players return to the available pool. No sales recorded.`,
+    { title:'Cancel Set Auction', danger:true, icon:'✕' }
+  )) return;
+  clearError();
+
+  // Set auction_state back to waiting, clear set_name
+  const { error: stateErr } = await sb.from('auction_state')
+    .update({ status:'waiting', current_set_name: null, current_player_id: null,
+              current_highest_bid: 0, current_highest_team_id: null,
+              second_highest_bid: 0, second_highest_team_id: null,
+              bid_timer_end: null, rtm_pending: false })
+    .eq('id', 1);
+  if (stateErr) return showError(stateErr.message);
+
+  // Return all live slots back to waiting
+  const { error: slotsErr } = await sb.from('auction_slots')
+    .update({ status: 'waiting', current_highest_bid: 0,
+              current_highest_team_id: null, second_highest_bid: 0,
+              second_highest_team_id: null, bid_timer_end: null })
+    .eq('set_name', setName).eq('status', 'live');
+  if (slotsErr) console.warn('Slots reset warn:', slotsErr.message);
+
+  toast(`✕ Set "${setName}" cancelled — players returned to pool`, 'warn');
+  clearInterval(adminSetTimerInterval);
+  if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
+  activeSetSlots = [];
+  await Promise.all([loadPlayers(), loadTeams(), loadAuctionState()]);
+  await updateStats();
+  await renderSetLauncher();
 }
 
 async function loadSetSlots(setName) {

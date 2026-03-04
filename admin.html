@@ -7,6 +7,8 @@
   <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <title>BFL Auction — Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css?v=25">
 </head>
 <body>
@@ -140,7 +142,8 @@
           <div class="skel skel-row" style="width:80%;"></div>
         </div>
         <div class="table-wrap" id="teams-table-wrap" style="max-height:320px;display:none;">
-          <table class="data-table">
+          <table class="data-table" style="width:100%;">
+            <colgroup><col style="width:auto"><col style="width:68px"><col style="width:54px"><col style="width:44px"></colgroup>
             <thead><tr><th>Team</th><th>Purse</th><th>Squad</th><th class="hide-sm">OS</th></tr></thead>
             <tbody id="teams-tbody"></tbody>
           </table>
@@ -168,7 +171,8 @@
 
         <!-- Real tabs -->
         <div id="tabs-real" style="display:none;">
-          <div class="tabs">
+          <div style="min-width:0;overflow:hidden;">
+        <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('players')">Players</button>
             <button class="tab-btn" onclick="switchTab('sets')">Set Launcher</button>
             <button class="tab-btn" onclick="switchTab('history')">History</button>
@@ -322,6 +326,7 @@
           </div>
 
         </div>
+        </div><!-- end min-width:0 wrapper -->
       </div>
     </div>
   </div>

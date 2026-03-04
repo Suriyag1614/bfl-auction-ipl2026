@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>BFL Auction — Live</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css?v=25">
 </head>
 <body>
@@ -100,6 +102,7 @@
 
     <!-- RIGHT: Squad + All Teams -->
     <div class="squad-sidebar">
+      <div class="squad-sidebar-inner">
 
       <!-- My Squad -->
       <div class="card" style="margin-bottom:12px;">
@@ -126,9 +129,12 @@
           <div class="skel skel-row" style="width:85%;"></div>
         </div>
 
-        <div class="table-wrap" id="squad-table-wrap" style="max-height:340px;overflow:auto;display:none;">
-          <table class="data-table squad-table" style="min-width:360px;">
-            <thead><tr><th style="width:28px;">#</th><th>Player &amp; Tags</th><th>Role</th><th>IPL</th><th>Paid</th></tr></thead>
+        <div class="squad-table-wrap table-wrap" id="squad-table-wrap" style="max-height:340px;overflow-x:auto;overflow-y:auto;display:none;">
+          <table class="data-table squad-table" style="width:100%;">
+            <colgroup>
+              <col class="col-num"><col class="col-player"><col class="col-role"><col class="col-ipl"><col class="col-paid">
+            </colgroup>
+            <thead><tr><th style="width:24px;">#</th><th>Player</th><th>Role</th><th>IPL</th><th>Paid</th></tr></thead>
             <tbody id="squad-tbody">
               <tr><td colspan="5" class="empty-cell">No players yet</td></tr>
             </tbody>
@@ -138,10 +144,13 @@
       </div>
 
       <!-- All Teams -->
-      <div class="card">
+      <div class="card" id="all-teams-card">
         <div class="card-title" style="margin-bottom:10px;">All Teams</div>
-        <div class="table-wrap" style="overflow:auto;">
-          <table class="data-table" style="min-width:320px;font-size:12px;">
+        <div class="table-wrap" style="max-height:300px;overflow-x:auto;overflow-y:auto;">
+          <table class="data-table all-teams-table-inner" style="width:100%;font-size:12px;">
+            <colgroup>
+              <col class="col-team"><col class="col-purse"><col class="col-sq"><col class="col-os">
+            </colgroup>
             <thead>
               <tr>
                 <th>Team</th>
@@ -157,6 +166,7 @@
         </div>
       </div>
 
+      </div><!-- end squad-sidebar-inner -->
     </div>
   </div>
 </div>
