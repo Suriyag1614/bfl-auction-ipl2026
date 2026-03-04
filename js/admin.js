@@ -877,6 +877,270 @@ function hSortBy(key) {
 }
 function sortHistory(key) { hSortBy(key); }
 
+// ─── EXPORT HISTORY CSV ───────────────────────────────────────
+function exportHistoryCSV() {
+  try {
+    const q    = (el('history-search')?.value  || '').toLowerCase();
+    const fil  =  el('history-filter')?.value  || '';
+    const rolF =  el('history-role')?.value    || '';
+    let list = auctionHistory.filter(r => {
+      if (fil  && r.status !== fil)  return false;
+      if (rolF && r.role   !== rolF) return false;
+      if (q && !r.player_name.toLowerCase().includes(q) &&
+               !(r.sold_to||'').toLowerCase().includes(q) &&
+               !(r.ipl_team||'').toLowerCase().includes(q)) return false;
+      return true;
+    });
+    list.sort((a, b) => {
+      let va = a[hSortKey]??'', vb = b[hSortKey]??'';
+      if (hSortKey === 'sold_at') { va = va?new Date(va).getTime():0; vb = vb?new Date(vb).getTime():0; }
+      else if (['sold_price','base_price'].includes(hSortKey)) { va=Number(va)||0; vb=Number(vb)||0; }
+      else if (typeof va==='string') { va=va.toLowerCase(); vb=vb.toLowerCase(); }
+      return hSortDir === 'asc' ? (va>vb?1:-1) : (va<vb?1:-1);
+    });
+    const headers = ['#','Player','Role','IPL Team','Base (Cr)','Sold To','Sold Price (Cr)','Status','Time','Retained','RTM','Overseas','Uncapped'];
+    const rows = list.map((r,i) => {
+      const ts = r.sold_at ? new Date(r.sold_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+      return [i+1,r.player_name,r.role,r.ipl_team,r.base_price,r.sold_to,r.sold_price!=null?Number(r.sold_price).toFixed(2):'—',r.status,ts,r.is_retained?'Yes':'',r.is_rtm?'Yes':'',r.is_overseas?'Yes':'',r.is_uncapped?'Yes':''];
+    });
+    const csv = [headers,...rows].map(row => row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
+    a.download = 'BFL_Auction_History.csv'; a.click();
+    toast('⬇ History CSV exported', 'success');
+  } catch(e) { toast('Export failed','error'); }
+}
+
+// ─── EXPORT HISTORY PDF ───────────────────────────────────────
+function exportHistoryPDF() {
+  try {
+    const q    = (el('history-search')?.value  || '').toLowerCase();
+    const fil  =  el('history-filter')?.value  || '';
+    const rolF =  el('history-role')?.value    || '';
+    let list = auctionHistory.filter(r => {
+      if (fil  && r.status !== fil)  return false;
+      if (rolF && r.role   !== rolF) return false;
+      if (q && !r.player_name.toLowerCase().includes(q) &&
+               !(r.sold_to||'').toLowerCase().includes(q) &&
+               !(r.ipl_team||'').toLowerCase().includes(q)) return false;
+      return true;
+    });
+    const soldList   = list.filter(r => r.status === 'sold');
+    const unsoldList = list.filter(r => r.status === 'unsold');
+    const totalSpent = soldList.reduce((s,r) => s+Number(r.sold_price||0),0);
+    const rows_html  = list.sort((a,b) => {
+      const ta = a.sold_at?new Date(a.sold_at).getTime():0;
+      const tb = b.sold_at?new Date(b.sold_at).getTime():0;
+      return tb - ta;
+    }).map((r,i) => {
+      const ts = r.sold_at ? new Date(r.sold_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+      const tags=[r.is_retained?'RTN':'',r.is_rtm?'RTM':'',r.is_overseas?'OS':'',r.is_uncapped?'UC':''].filter(Boolean).join(' ');
+      const isSold = r.status === 'sold';
+      return `<tr>
+        <td>${i+1}</td>
+        <td><strong>${r.player_name}</strong>${tags?`<br><small style="color:#999;">${tags}</small>`:''}</td>
+        <td>${r.role}</td>
+        <td>${r.ipl_team}</td>
+        <td>₹${r.base_price}</td>
+        <td>${r.sold_to||'—'}</td>
+        <td style="font-weight:${isSold?'700':'400'};color:${isSold?'#b7791f':'#999'};">${r.sold_price!=null?'₹'+Number(r.sold_price).toFixed(2):'—'}</td>
+        <td><span style="background:${isSold?'#e6f4e6':'#f5f5f5'};color:${isSold?'#276749':'#777'};padding:2px 6px;border-radius:3px;font-size:11px;">${r.status.toUpperCase()}</span></td>
+        <td style="font-size:11px;color:#888;">${ts}</td>
+      </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>BFL 2026 — Auction History</title>
+      <style>
+        body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;margin:0;padding:20px;}
+        h1{font-size:20px;margin-bottom:4px;}
+        .sub{font-size:11px;color:#666;margin-bottom:14px;}
+        .stat-row{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
+        .stat{background:#f7f7f7;border:1px solid #ddd;border-radius:5px;padding:8px 14px;text-align:center;min-width:80px;}
+        .stat-val{font-size:18px;font-weight:700;color:#b7791f;}
+        .stat-lbl{font-size:10px;color:#666;text-transform:uppercase;}
+        table{width:100%;border-collapse:collapse;}
+        th{background:#1a1a2e;color:#f0b429;padding:7px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.4px;}
+        td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top;}
+        @media print{body{padding:8px;} .no-print{display:none!important;}}
+      </style></head><body>
+      <h1>🏏 BFL IPL 2026 — Auction History</h1>
+      <div class="sub">Generated ${new Date().toLocaleString('en-IN')}</div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-val">${list.length}</div><div class="stat-lbl">Total</div></div>
+        <div class="stat"><div class="stat-val">${soldList.length}</div><div class="stat-lbl">Sold</div></div>
+        <div class="stat"><div class="stat-val">${unsoldList.length}</div><div class="stat-lbl">Unsold</div></div>
+        <div class="stat"><div class="stat-val">₹${totalSpent.toFixed(1)}</div><div class="stat-lbl">Total Spent Cr</div></div>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL</th><th>Base</th><th>Sold To</th><th>Price</th><th>Status</th><th>Time</th></tr></thead>
+        <tbody>${rows_html}</tbody>
+      </table>
+      <script>window.onload=()=>window.print();<\/script>
+    </body></html>`;
+    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
+    toast('📄 History PDF opened','success');
+  } catch(e) { toast('PDF failed','error'); }
+}
+
+// ─── EXPORT ALL SQUADS PDF ────────────────────────────────────
+async function exportAllSquadsPDF() {
+  try {
+    const { data: allSquads } = await sb.from('team_players')
+      .select('sold_price,is_retained,is_rtm,team_id,team:teams(team_name,purse_remaining,is_advantage_holder,rtm_cards_total,rtm_cards_used),player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)');
+    if (!allSquads) { toast('No squad data','warn'); return; }
+    const byTeam = {};
+    allSquads.forEach(r => {
+      const tn = r.team?.team_name||r.team_id;
+      if (!byTeam[tn]) byTeam[tn] = { team: r.team, players: [] };
+      byTeam[tn].players.push(r);
+    });
+    const sections = Object.entries(byTeam).sort(([a],[b])=>a.localeCompare(b)).map(([tn,td]) => {
+      const players = td.players.sort((a,b) => (a.player?.name||'').localeCompare(b.player?.name||''));
+      const spent = players.reduce((s,r)=>s+Number(r.sold_price||0),0);
+      const os  = players.filter(r=>r.player?.is_overseas).length;
+      const uc  = players.filter(r=>r.player?.is_uncapped).length;
+      const rtn = players.filter(r=>r.is_retained).length;
+      const purse = Number(td.team?.purse_remaining||0);
+      const rows_html = players.map((tp,i) => {
+        const p = tp.player||{};
+        const tags=[tp.is_retained?'RTN':'',tp.is_rtm?'RTM':'',p.is_overseas?'OS':'',p.is_uncapped?'UC':''].filter(Boolean).join(' ');
+        return `<tr style="${tp.is_retained?'background:#fffbeb;':''}">
+          <td>${i+1}</td><td><strong>${p.name||'?'}</strong>${tags?`<br><small style="color:#999;">${tags}</small>`:''}</td>
+          <td>${p.role||'—'}</td><td>${p.ipl_team||'—'}</td>
+          <td style="text-align:center;">${p.bfl_avg?Number(p.bfl_avg).toFixed(1):'—'}</td>
+          <td>₹${p.base_price||0}</td>
+          <td style="font-weight:700;color:#b7791f;">₹${Number(tp.sold_price||0).toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+      return `<div class="team-block">
+        <h2>${tn} ${td.team?.is_advantage_holder?'⭐':''}</h2>
+        <div class="team-stats">
+          <span>Players: <strong>${players.length}/12</strong></span>
+          <span>Spent: <strong>₹${spent.toFixed(1)} Cr</strong></span>
+          <span>Remaining: <strong>₹${purse.toFixed(1)} Cr</strong></span>
+          <span>OS: <strong>${os}/4</strong></span>
+          <span>UC: <strong>${uc}</strong></span>
+          <span>RTN: <strong>${rtn}</strong></span>
+        </div>
+        <table><thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>BFL Avg</th><th>Base</th><th>Paid</th></tr></thead>
+        <tbody>${rows_html}</tbody></table>
+      </div>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>BFL 2026 — All Team Squads</title>
+      <style>
+        body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;margin:0;padding:20px;}
+        h1{font-size:20px;margin-bottom:4px;}
+        .sub{font-size:11px;color:#666;margin-bottom:16px;}
+        .team-block{margin-bottom:28px;page-break-inside:avoid;}
+        .team-block h2{font-size:15px;margin-bottom:6px;color:#1a1a2e;border-bottom:2px solid #f0b429;padding-bottom:4px;}
+        .team-stats{display:flex;gap:14px;font-size:11px;margin-bottom:8px;flex-wrap:wrap;color:#555;}
+        .team-stats strong{color:#1a1a1a;}
+        table{width:100%;border-collapse:collapse;margin-bottom:4px;}
+        th{background:#1a1a2e;color:#f0b429;padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;}
+        td{padding:5px 8px;border-bottom:1px solid #eee;vertical-align:top;}
+        @media print{.team-block{page-break-inside:avoid;} body{padding:10px;}}
+      </style></head><body>
+      <h1>🏏 BFL IPL 2026 — All Team Squads</h1>
+      <div class="sub">Generated ${new Date().toLocaleString('en-IN')} · ${Object.keys(byTeam).length} teams</div>
+      ${sections}
+      <script>window.onload=()=>window.print();<\/script>
+    </body></html>`;
+    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
+    toast('📄 All Squads PDF opened','success');
+  } catch(e) { toast('PDF failed: '+e.message,'error'); console.error(e); }
+}
+
+// ─── EXPORT ALL SQUADS CSV ────────────────────────────────────
+async function exportAllSquadsCSV() {
+  try {
+    const { data: allSquads } = await sb.from('team_players')
+      .select('sold_price,is_retained,is_rtm,team_id,team:teams(team_name),player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)');
+    if (!allSquads) { toast('No squad data','warn'); return; }
+    const headers = ['BFL Team','#','Player','Role','IPL Team','BFL Avg','Base (Cr)','Paid (Cr)','Retained','RTM','Overseas','Uncapped'];
+    const byTeam = {};
+    allSquads.forEach(r => {
+      const tn = r.team?.team_name||r.team_id;
+      if (!byTeam[tn]) byTeam[tn] = [];
+      byTeam[tn].push(r);
+    });
+    const rows = [];
+    Object.entries(byTeam).sort(([a],[b])=>a.localeCompare(b)).forEach(([tn,players]) => {
+      players.sort((a,b)=>(a.player?.name||'').localeCompare(b.player?.name||''));
+      players.forEach((r,i) => {
+        const p = r.player||{};
+        rows.push([tn,i+1,p.name||'?',p.role||'?',p.ipl_team||'?',
+          p.bfl_avg?Number(p.bfl_avg).toFixed(1):'—',p.base_price||0,
+          Number(r.sold_price||0).toFixed(2),r.is_retained?'Yes':'',r.is_rtm?'Yes':'',
+          p.is_overseas?'Yes':'',p.is_uncapped?'Yes':'']);
+      });
+    });
+    const csv = [headers,...rows].map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const a = document.createElement('a'); a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
+    a.download='BFL_All_Squads.csv'; a.click();
+    toast('⬇ All Squads CSV exported','success');
+  } catch(e) { toast('CSV failed','error'); }
+}
+
+// ─── EXPORT SINGLE TEAM SQUAD PDF (admin) ────────────────────
+async function exportTeamSquadPDF() {
+  const teamId = el('squad-team-select')?.value;
+  if (!teamId) { toast('Select a team first','warn'); return; }
+  const team = allTeams.find(t => t.id === teamId);
+  try {
+    const { data: rows } = await sb.from('team_players')
+      .select('sold_price,is_retained,is_rtm,player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)')
+      .eq('team_id', teamId);
+    const list = (rows||[]).sort((a,b)=>(a.player?.name||'').localeCompare(b.player?.name||''));
+    const totalSpent = list.reduce((s,r)=>s+Number(r.sold_price||0),0);
+    const os  = list.filter(r=>r.player?.is_overseas).length;
+    const uc  = list.filter(r=>r.player?.is_uncapped).length;
+    const rtn = list.filter(r=>r.is_retained).length;
+    const rows_html = list.map((tp,i) => {
+      const p = tp.player||{};
+      const tags=[tp.is_retained?'RTN':'',tp.is_rtm?'RTM':'',p.is_overseas?'OS':'',p.is_uncapped?'UC':''].filter(Boolean).join(' ');
+      return `<tr style="${tp.is_retained?'background:#fffbeb;':''}">
+        <td>${i+1}</td><td><strong>${p.name||'?'}</strong>${tags?`<br><small style="color:#999;">${tags}</small>`:''}</td>
+        <td>${p.role||'—'}</td><td>${p.ipl_team||'—'}</td>
+        <td style="text-align:center;">${p.bfl_avg?Number(p.bfl_avg).toFixed(1):'—'}</td>
+        <td>₹${p.base_price||0}</td>
+        <td style="font-weight:700;color:#b7791f;">₹${Number(tp.sold_price||0).toFixed(2)}</td>
+      </tr>`;
+    }).join('');
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>${team?.team_name||'Team'} — BFL 2026 Squad</title>
+      <style>
+        body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;margin:0;padding:20px;}
+        h1{font-size:20px;margin-bottom:4px;} .sub{font-size:11px;color:#666;margin-bottom:14px;}
+        .stat-row{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;}
+        .stat{background:#f7f7f7;border:1px solid #ddd;border-radius:5px;padding:8px 14px;text-align:center;min-width:80px;}
+        .stat-val{font-size:18px;font-weight:700;color:#b7791f;}
+        .stat-lbl{font-size:10px;color:#666;text-transform:uppercase;}
+        table{width:100%;border-collapse:collapse;}
+        th{background:#1a1a2e;color:#f0b429;padding:7px 8px;text-align:left;font-size:10px;text-transform:uppercase;}
+        td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top;}
+        @media print{body{padding:8px;}}
+      </style></head><body>
+      <h1>🏏 ${team?.team_name||'Team'}${team?.is_advantage_holder?' ⭐':''}</h1>
+      <div class="sub">BFL IPL 2026 Auction Squad · Generated ${new Date().toLocaleString('en-IN')}</div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-val">${list.length}/12</div><div class="stat-lbl">Players</div></div>
+        <div class="stat"><div class="stat-val">₹${totalSpent.toFixed(1)}</div><div class="stat-lbl">Total Spent</div></div>
+        <div class="stat"><div class="stat-val">₹${Number(team?.purse_remaining||0).toFixed(1)}</div><div class="stat-lbl">Remaining</div></div>
+        <div class="stat"><div class="stat-val">${os}/4</div><div class="stat-lbl">Overseas</div></div>
+        <div class="stat"><div class="stat-val">${uc}</div><div class="stat-lbl">Uncapped</div></div>
+        <div class="stat"><div class="stat-val">${rtn}</div><div class="stat-lbl">Retained</div></div>
+      </div>
+      <table><thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>BFL Avg</th><th>Base</th><th>Paid</th></tr></thead>
+      <tbody>${rows_html}</tbody></table>
+      <script>window.onload=()=>window.print();<\/script>
+    </body></html>`;
+    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
+    toast('📄 Squad PDF opened','success');
+  } catch(e) { toast('PDF failed','error'); }
+}
+
 // ─── SQUADS TAB ───────────────────────────────────────────────
 async function renderSquadView() {
   const teamId = el('squad-team-select').value;
@@ -990,6 +1254,10 @@ function renderSquadTable(team) {
     </div>`;
 
   cont.innerHTML = statBar + filtersBar + tableHTML;
+  // Render composition validator after content is in DOM
+  const compContainer = document.createElement('div');
+  cont.appendChild(compContainer);
+  renderAdminSquadComp(squadRows.map(r => r), team, compContainer);
 }
 
 function renderSquadTableOnly() {
@@ -999,6 +1267,73 @@ function renderSquadTableOnly() {
 function sqSortBy(key) {
   sqSortDir = (sqSortKey===key && sqSortDir==='asc') ? 'desc' : 'asc';
   sqSortKey = key; renderSquadTableOnly();
+}
+
+// ─── Squad composition validator (IPL rules) ──────────────────
+function renderAdminSquadComp(players, team, container) {
+  if (!container) return;
+  if (!players.length) { container.innerHTML = ''; return; }
+
+  const wk   = players.filter(p => p.role === 'Wicket-Keeper').length;
+  const bat  = players.filter(p => p.role === 'Batter').length;
+  const bowl = players.filter(p => p.role === 'Bowler').length;
+  const ar   = players.filter(p => p.role === 'All-Rounder').length;
+  const uc   = players.filter(p => p.is_uncapped).length;
+  const os   = players.filter(p => p.is_overseas).length;
+  const total= players.length;
+  const isAdv = team?.is_advantage_holder;
+
+  // IPL team limit
+  const iplCounts = {};
+  players.forEach(p => {
+    if (p.ipl_team) iplCounts[p.ipl_team] = (iplCounts[p.ipl_team]||0) + 1;
+  });
+  const iplViolations = isAdv ? [] : Object.entries(iplCounts).filter(([,c]) => c > 3).map(([t]) => t);
+
+  const issues = [];
+  if (wk < 1)   issues.push(`Need ${1-wk} more WK`);
+  if (bat < 2)  issues.push(`Need ${2-bat} more BAT`);
+  if (bowl < 3) issues.push(`Need ${3-bowl} more BOWL`);
+  if (ar < 2)   issues.push(`Need ${2-ar} more AR`);
+  if (uc < 1)   issues.push('Need 1+ Uncapped');
+  if (os > 4)   issues.push(`OS limit (${os}/4)`);
+  if (total > 12) issues.push(`Over limit (${total}/12)`);
+  iplViolations.forEach(t => issues.push(`Max 3 from ${t}`));
+
+  const allMet = !issues.length;
+  const complete = total === 12 && allMet;
+
+  const roleDefs = [
+    { label:'WK',   val:wk,   min:1 },
+    { label:'BAT',  val:bat,  min:2 },
+    { label:'BOWL', val:bowl, min:3 },
+    { label:'AR',   val:ar,   min:2 },
+    { label:'UC',   val:uc,   min:1 },
+    { label:'OS',   val:os,   max:4 },
+    { label:'TOTAL',val:total,min:12,max:12 },
+  ];
+
+  container.innerHTML = `<div class="squad-comp-bar" style="margin-top:10px;">
+    <div class="squad-comp-header">
+      <span class="${complete?'squad-comp-ok':allMet?'squad-comp-ok':'squad-comp-warn'}">
+        ${complete ? '✓ Squad Complete' : allMet ? '✓ Requirements Met' : '⚠ '+issues.length+' issue(s)'}
+      </span>
+      <span style="font-size:11px;opacity:0.6;">${total}/12 players · ${os}/4 OS${isAdv?' · Advantage (IPL limit exempt)':''}</span>
+    </div>
+    <div class="squad-role-grid">
+      ${roleDefs.map(r => {
+        let ok;
+        if (r.min !== undefined && r.max !== undefined) ok = r.val >= r.min && r.val <= r.max;
+        else if (r.max) ok = r.val <= r.max;
+        else ok = r.val >= r.min;
+        return `<div class="squad-role-chip ${ok?'met':'unmet'}">
+          <div class="squad-role-chip-val">${r.val}${r.max?'/'+r.max:''}</div>
+          <div class="squad-role-chip-lbl">${r.label}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${issues.length?`<div class="squad-issues-list">${issues.map(i=>`<span class="squad-issue-tag">${i}</span>`).join('')}</div>`:''}
+  </div>`;
 }
 
 // ─── TABS ─────────────────────────────────────────────────────
@@ -1012,6 +1347,7 @@ function switchTab(name) {
   if (name === 'history')    renderHistory();
   if (name === 'sets')       renderSetLauncher();
   if (name === 'retentions') renderRetentionView();
+  if (name === 'rtmsetup')   initRTMSetup();
 }
 
 // ─── REALTIME — single channel ────────────────────────────────
@@ -1346,3 +1682,150 @@ async function removeRetention(playerId, teamId, price) {
   toast('Retention removed — ₹'+Number(price).toFixed(2)+' Cr refunded', 'warn');
   await Promise.all([loadTeams(), loadPlayers(), renderRetentionView()]); updateStats();
 }
+// ─────────────────────────────────────────────────────────────
+//  RTM SETUP TAB — Assign prev_bfl_team to players
+// ─────────────────────────────────────────────────────────────
+
+let rtmPlayers   = [];   // all non-retained players from players_master
+let rtmTeamNames = [];   // team names for dropdown
+
+async function initRTMSetup() {
+  // Load all non-retained players
+  const { data: players } = await sb
+    .from('players_master')
+    .select('id,name,role,ipl_team,prev_bfl_team,is_rtm_eligible,is_retained,is_overseas,is_uncapped,bfl_avg')
+    .eq('is_retained', false)
+    .order('name');
+  rtmPlayers = players || [];
+
+  // Load team names for dropdown
+  if (!rtmTeamNames.length) {
+    rtmTeamNames = allTeams.map(t => t.team_name).sort();
+  }
+
+  // Populate team filter
+  const sel = el('rtm-team-filter');
+  if (sel) {
+    sel.innerHTML = '<option value="">All Teams</option>' +
+      rtmTeamNames.map(n => `<option value="${n}">${n}</option>`).join('') +
+      '<option value="__none__">— Not Assigned —</option>';
+  }
+
+  renderRTMSetup();
+}
+
+function renderRTMSetup() {
+  const cont   = el('rtm-setup-content');
+  if (!cont) return;
+
+  const q      = (el('rtm-search')?.value || '').toLowerCase();
+  const teamF  =  el('rtm-team-filter')?.value  || '';
+  const statF  =  el('rtm-status-filter')?.value || '';
+
+  let list = rtmPlayers.filter(p => {
+    if (q     && !p.name.toLowerCase().includes(q)) return false;
+    if (teamF === '__none__') { if (p.prev_bfl_team) return false; }
+    else if (teamF && p.prev_bfl_team !== teamF) return false;
+    if (statF === 'assigned'   && !p.prev_bfl_team) return false;
+    if (statF === 'unassigned' &&  p.prev_bfl_team) return false;
+    return true;
+  });
+
+  const assigned = rtmPlayers.filter(p => p.prev_bfl_team).length;
+
+  cont.innerHTML = `
+    <div style="margin-bottom:10px;font-size:12px;color:var(--muted);">
+      Showing <strong style="color:var(--text);">${list.length}</strong> players &nbsp;·&nbsp;
+      <strong style="color:var(--gold);">${assigned}</strong> of ${rtmPlayers.length} assigned
+    </div>
+    <div class="table-wrap" style="max-height:520px;overflow:auto;">
+      <table class="data-table">
+        <thead><tr>
+          <th>Player</th><th>Role</th><th>IPL Team</th>
+          <th>BFL Avg</th><th>OS/UC</th>
+          <th style="min-width:200px;">Prev BFL Team (for RTM)</th>
+          <th>RTM</th>
+        </tr></thead>
+        <tbody>
+          ${list.map(p => {
+            const tags = [p.is_overseas?'OS':'',p.is_uncapped?'UC':''].filter(Boolean).join(' ');
+            const teamOpts = '<option value="">— None —</option>' +
+              rtmTeamNames.map(n =>
+                `<option value="${n}" ${p.prev_bfl_team===n?'selected':''}>${n}</option>`
+              ).join('');
+            const rtmBadge = p.is_rtm_eligible
+              ? '<span class="tag tag-rtm">✓ RTM</span>'
+              : '<span style="color:var(--muted);font-size:11px;">—</span>';
+            return `<tr>
+              <td><strong>${p.name}</strong></td>
+              <td style="font-size:12px;">${p.role}</td>
+              <td style="font-size:12px;color:var(--muted);">${p.ipl_team||'—'}</td>
+              <td style="font-size:12px;">${p.bfl_avg?Number(p.bfl_avg).toFixed(1):'—'}</td>
+              <td style="font-size:11px;color:var(--muted);">${tags||'—'}</td>
+              <td>
+                <select class="form-input" style="width:100%;font-size:13px;padding:5px 8px;"
+                  onchange="setPrevBFLTeam('${p.id}', this.value, this)">
+                  ${teamOpts}
+                </select>
+              </td>
+              <td>${rtmBadge}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--muted);">
+      💡 Setting a Prev BFL Team automatically marks the player as RTM Eligible.
+      Clearing it removes RTM eligibility.
+    </div>`;
+}
+
+async function setPrevBFLTeam(playerId, teamName, selectEl) {
+  const prevVal = selectEl.dataset.prevVal ?? selectEl.value;
+  selectEl.disabled = true;
+
+  const updates = teamName
+    ? { prev_bfl_team: teamName, is_rtm_eligible: true  }
+    : { prev_bfl_team: null,     is_rtm_eligible: false };
+
+  const { error } = await sb
+    .from('players_master')
+    .update(updates)
+    .eq('id', playerId);
+
+  selectEl.disabled = false;
+
+  if (error) {
+    toast('Failed to update: ' + error.message, 'error');
+    return;
+  }
+
+  // Update local cache
+  const idx = rtmPlayers.findIndex(p => p.id === playerId);
+  if (idx >= 0) {
+    rtmPlayers[idx].prev_bfl_team  = teamName || null;
+    rtmPlayers[idx].is_rtm_eligible = !!teamName;
+  }
+  selectEl.dataset.prevVal = teamName;
+
+  // Update RTM badge in same row
+  const row = selectEl.closest('tr');
+  if (row) {
+    const badge = row.querySelector('td:last-child');
+    if (badge) {
+      badge.innerHTML = teamName
+        ? '<span class="tag tag-rtm">✓ RTM</span>'
+        : '<span style="color:var(--muted);font-size:11px;">—</span>';
+    }
+  }
+
+  toast(teamName
+    ? `${teamName.split(' ').pop()} ← RTM assigned`
+    : 'RTM eligibility removed', teamName ? 'success' : 'warn');
+
+  // Also reload main player list if visible
+  await loadPlayers();
+}
+
+// Hook into switchTab to lazy-load RTM setup
+const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;

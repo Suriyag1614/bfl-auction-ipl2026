@@ -1,18 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
-//  AUCTION.JS v14
-//  1.  RTM 60s countdown + audio alert when it's your turn
-//  2.  Admin RTM override reflected in team UI immediately
-//  3.  start_auction guard (server-side, JS just shows clear error)
-//  4.  Set auction cross-slot purse floor (server-enforced)
-//  5.  previous_ipl_team shown in RTM screen (server-side in force_sell)
-//  6.  Bid history per player (from bid_log table)
-//  7.  autopilot_delay: shown to team on status bar
-//  8.  Sound alert + screen flash when RTM is YOUR turn
-//  9.  Export my squad as CSV
-//  10. All-teams leaderboard below My Squad
-//  11. Mobile responsive (CSS handles most; JS adapts bid history)
-//  12. No set-live flicker (DOM patch, no rebuild)
-//  13. Timer shows grace (shows "—" not 0 while server has grace)
+//  AUCTION.JS v25
+//  1.  All v24 features preserved
+//  2.  Last-sold banner: IPL team color + logo + animations
+//  3.  Advanced player bid card (bfl_avg, role, OS, UC, etc.)
+//  4.  Squad validation: WK/BAT/BOWL/AR/UC/OS/IPL-limit/12 total
+//  5.  Team PDF export (squad with all player details)
 // ═══════════════════════════════════════════════════════════════
 
 let timerInterval    = null;
@@ -29,6 +21,7 @@ let _isRendering     = false;
 let _squadLoading    = false;
 let _teamsCache      = [];
 let _rtmAlerted      = false;
+let _lastSquadData   = [];
 
 const SIL = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23111520' rx='40'/%3E%3Ccircle cx='40' cy='28' r='14' fill='%2364748b'/%3E%3Cellipse cx='40' cy='70' rx='22' ry='18' fill='%2364748b'/%3E%3C/svg%3E";
 window._SIL = SIL;
@@ -46,6 +39,40 @@ const stateHash = s => !s ? '' :
    s.last_sold_price, s.current_set_name, s.rtm_deadline,
    (s.unsold_player_ids||[]).length].join('|');
 
+// ── IPL team helpers ──────────────────────────────────────────
+function getIPLColors(code) {
+  const map = {
+    CSK:  { primary:'#f7c948', secondary:'#00184e', glow:'rgba(247,201,72,0.3)' },
+    MI:   { primary:'#005da0', secondary:'#d1ab3e', glow:'rgba(0,93,160,0.35)' },
+    RCB:  { primary:'#d41620', secondary:'#1a1a1a', glow:'rgba(212,22,32,0.35)' },
+    KKR:  { primary:'#6a1bac', secondary:'#b08c3c', glow:'rgba(106,27,172,0.35)' },
+    SRH:  { primary:'#f26522', secondary:'#1a1a1a', glow:'rgba(242,101,34,0.35)' },
+    DC:   { primary:'#004c93', secondary:'#ef2826', glow:'rgba(0,76,147,0.35)' },
+    PBKS: { primary:'#aa192f', secondary:'#dbbe6c', glow:'rgba(170,25,47,0.35)' },
+    RR:   { primary:'#2d62a4', secondary:'#e83f5b', glow:'rgba(45,98,164,0.35)' },
+    GT:   { primary:'#1c3e6e', secondary:'#c8a84b', glow:'rgba(28,62,110,0.35)' },
+    LSG:  { primary:'#00b4d8', secondary:'#c6a200', glow:'rgba(0,180,216,0.35)' },
+  };
+  return map[(code||'').toUpperCase()] || null;
+}
+function getIPLLogoUrl(code) {
+  if (!code) return null;
+  const c = (code||'').trim().toUpperCase();
+  return `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png`;
+}
+function applyIPLCSSVars(el, code) {
+  const colors = getIPLColors(code);
+  if (!colors) {
+    el.style.removeProperty('--ipl-primary');
+    el.style.removeProperty('--ipl-secondary');
+    el.style.removeProperty('--ipl-primary-glow');
+    return;
+  }
+  el.style.setProperty('--ipl-primary',      colors.primary);
+  el.style.setProperty('--ipl-secondary',    colors.secondary);
+  el.style.setProperty('--ipl-primary-glow', colors.glow);
+}
+
 // ── Sound alert ───────────────────────────────────────────────
 function playRTMAlert() {
   try {
@@ -58,7 +85,7 @@ function playRTMAlert() {
       g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.25);
       o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.25);
     });
-  } catch(e) { /* audio not supported */ }
+  } catch(e) {}
 }
 
 function toast(msg, type='info') {
@@ -131,7 +158,8 @@ async function fetchState() {
     } else { state.rtm_team = null; }
 
     if (state.last_player_id) {
-      const { data: lp } = await sb.from('players_master').select('id,name,role,image_url').eq('id', state.last_player_id).maybeSingle();
+      const { data: lp } = await sb.from('players_master')
+        .select('id,name,role,image_url,ipl_team,bfl_avg,is_overseas,is_uncapped').eq('id', state.last_player_id).maybeSingle();
       state.last_player = lp || null;
     } else { state.last_player = null; }
 
@@ -187,7 +215,6 @@ async function applyState(state) {
     _rtmAlerted = false;
     hide('set-auction-view'); hide('no-auction'); hide('rtm-pending');
     renderLivePlayer(state, state.status === 'paused');
-    // Load bid history for current player
     if (state.current_player_id) loadBidHistory(state.current_player_id);
 
   } else {
@@ -213,8 +240,203 @@ async function applyState(state) {
     await Promise.all([loadSquad(), loadStats()]);
     renderMiniHistory('mini-history-wrap');
   }
-  // Refresh all-teams leaderboard on any state change
   loadAllTeams();
+}
+
+// ── Last result banner with IPL team colors ───────────────────
+function renderLastResult(state) {
+  const cont = el('last-result-container'); if (!cont) return;
+  if (!state.last_player_result) { cont.innerHTML = ''; return; }
+
+  if (state.last_player_result === 'set_done') {
+    cont.innerHTML = `<div class="last-result-banner sold-banner">
+      <div style="font-size:22px;margin-right:10px;">⚡</div>
+      <div style="flex:1;min-width:0;"><div class="lr-name">Set Complete</div>
+        <div class="lr-detail">${state.last_sold_to_team||''}</div></div>
+      <div class="lr-price lr-sold">DONE</div></div>`; return;
+  }
+
+  const p = state.last_player;
+  const sold = state.last_player_result === 'sold';
+  const iplCode  = p?.ipl_team || '';
+  const logoUrl  = getIPLLogoUrl(iplCode);
+  const colors   = getIPLColors(iplCode);
+
+  const banner = document.createElement('div');
+  banner.className = `last-result-banner ${sold ? 'sold-banner' : 'unsold-banner'}`;
+  if (sold && colors) {
+    banner.style.setProperty('--ipl-primary',      colors.primary);
+    banner.style.setProperty('--ipl-secondary',    colors.secondary);
+    banner.style.setProperty('--ipl-primary-glow', colors.glow);
+  }
+
+  const logoHTML = (sold && logoUrl)
+    ? `<img class="banner-ipl-logo" src="${logoUrl}"
+         onerror="this.style.display='none'" alt="${iplCode}" title="${iplCode}">`
+    : '';
+
+  banner.innerHTML = `
+    <img src="${imgSrc(p?.image_url)}" onerror="this.onerror=null;this.src=window._SIL" alt=""
+      style="width:50px;height:50px;border-radius:50%;object-fit:cover;flex-shrink:0;
+             border:2px solid ${sold&&colors?colors.primary:'var(--border2)'};">
+    ${logoHTML}
+    <div style="flex:1;min-width:0;">
+      <div class="lr-name">${p?.name||'Unknown'}</div>
+      <div class="lr-detail">${p?.role||''}
+        ${iplCode ? `<span style="color:${sold&&colors?colors.primary:'var(--muted)'}; font-weight:700;"> · ${iplCode}</span>` : ''}
+        ${sold ? ` · Sold to <strong>${state.last_sold_to_team||'?'}</strong>` : ' · Unsold'}
+      </div>
+    </div>
+    <div class="lr-price ${sold?'lr-sold':'lr-unsold'}" ${sold&&colors?`style="color:${colors.primary};"`:''}>${sold ? fmt(state.last_sold_price) : 'UNSOLD'}</div>`;
+
+  cont.innerHTML = '';
+  cont.appendChild(banner);
+}
+
+// ── Advanced player bid card ──────────────────────────────────
+function renderLivePlayer(state, paused) {
+  const p = state.current_player;
+  const isMe = state.current_highest_team_id === myTeam?.id;
+  const colors = getIPLColors(p.ipl_team);
+  const logoUrl = getIPLLogoUrl(p.ipl_team);
+
+  // Rebuild card HTML if needed
+  if (!el('player-img')) {
+    const avgVal = p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—';
+    const avgClass = p.bfl_avg > 100 ? 'good' : p.bfl_avg > 50 ? '' : 'warn';
+
+    const card = el('player-card');
+    card.innerHTML = `
+      <div class="adv-player-card" id="adv-player-wrap">
+        <div class="adv-card-ipl-band" id="adv-ipl-band"></div>
+        <div class="adv-card-body">
+          <div class="adv-card-photo-col">
+            <img id="player-img" class="adv-card-avatar" src="" alt=""
+              onerror="this.onerror=null;this.src=window._SIL;">
+            <img id="adv-ipl-logo" class="adv-card-ipl-logo" src="" alt="" style="display:none;"
+              onerror="this.style.display='none'">
+          </div>
+          <div class="adv-card-info-col">
+            <div id="player-name" class="adv-card-name">—</div>
+            <div class="adv-card-meta-row" id="player-meta-row"></div>
+            <div id="player-flags" class="player-flags" style="margin-bottom:8px;"></div>
+            <div class="adv-card-stats-grid" id="adv-stats-grid"></div>
+          </div>
+        </div>
+      </div>
+      <div class="bid-area" style="margin-top:14px;">
+        <div class="timer-wrap"><div class="timer-label">Time Left</div><div class="timer" id="timer">—</div></div>
+        <div class="bid-stats">
+          <div class="bid-stat"><div class="bid-stat-label">Highest Bid</div><div class="bid-stat-value" id="current-bid">—</div><div class="bid-stat-sub" id="leading-team">—</div></div>
+          <div class="bid-stat"><div class="bid-stat-label">2nd Highest</div><div class="bid-stat-value second" id="second-bid">—</div><div class="bid-stat-sub" id="second-team">—</div></div>
+        </div>
+        <div class="bid-row">
+          <input class="form-input" type="number" id="bid-input" placeholder="Amount (Cr)" step="0.25" min="0.5">
+          <button class="btn btn-gold" id="bid-btn" onclick="placeBid()">Bid</button>
+          <button class="btn btn-ghost" id="undo-bid-btn" onclick="undoBid()" style="display:none;">↩ Undo</button>
+        </div>
+        <div id="bid-error" class="error-msg"></div>
+        <div class="info-msg">Bids must be multiples of ₹0.25 Cr · Press Enter to bid</div>
+      </div>
+      <div id="bid-history-wrap"></div>
+      <div id="mini-history-wrap-live"></div>`;
+  }
+
+  // Update avatar
+  const img = el('player-img');
+  if (img) { img.src = imgSrc(p.image_url); img.style.display = 'block'; }
+
+  // IPL styling
+  const wrap = el('adv-player-wrap');
+  const band = el('adv-ipl-band');
+  if (colors && wrap) {
+    wrap.style.setProperty('--ipl-primary', colors.primary);
+    wrap.style.setProperty('--ipl-secondary', colors.secondary);
+    wrap.style.setProperty('--ipl-primary-glow', colors.glow);
+    if (band) band.style.background = colors.primary;
+    if (img)  img.style.borderColor = colors.primary;
+  }
+  const logoEl = el('adv-ipl-logo');
+  if (logoEl && logoUrl) {
+    logoEl.src = logoUrl; logoEl.style.display = 'block';
+    logoEl.onerror = () => { logoEl.style.display = 'none'; };
+  }
+
+  // Player name
+  const nameEl = el('player-name');
+  if (nameEl) nameEl.textContent = p.name;
+
+  // Meta row
+  const metaRow = el('player-meta-row');
+  if (metaRow) {
+    metaRow.innerHTML = [
+      { icon:'🎭', label:'Role',    val: p.role || '—' },
+      { icon:'🏏', label:'IPL',     val: p.ipl_team || '—', color: colors?.primary },
+      { icon:'📁', label:'Set',     val: p.set_name || '—' },
+      { icon:'💰', label:'Base',    val: fmt(p.base_price) },
+    ].map(m => `<div class="adv-card-meta-badge">${m.icon} <strong${m.color?` style="color:${m.color}"`:''}>${m.val}</strong></div>`).join('');
+  }
+
+  // Flags
+  let flags = p.is_overseas
+    ? '<span class="tag tag-overseas">Overseas</span>'
+    : '<span class="tag tag-indian">Indian</span>';
+  flags += p.is_uncapped
+    ? ' <span class="tag tag-uncapped">Uncapped</span>'
+    : ' <span class="tag tag-capped">Capped</span>';
+  if (p.is_retained) flags += ' <span class="tag tag-retained">Retained</span>';
+  if (p.is_rtm_eligible && !p.is_retained) flags += ' <span class="tag tag-rtm">RTM Eligible</span>';
+  const flagsEl = el('player-flags'); if (flagsEl) flagsEl.innerHTML = flags;
+
+  // Stats grid
+  const statsGrid = el('adv-stats-grid');
+  if (statsGrid) {
+    const avg = p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—';
+    const avgCls = p.bfl_avg > 100 ? 'good' : p.bfl_avg > 50 ? '' : p.bfl_avg ? 'warn' : '';
+    statsGrid.innerHTML = [
+      { val: avg,                             cls: avgCls, lbl: 'BFL Avg' },
+      { val: p.role?.substring(0,4)||'—',     cls: '',     lbl: 'Role' },
+      { val: p.ipl_team || '—',               cls: '',     lbl: 'IPL Team', color: colors?.primary },
+      { val: fmt(p.base_price),               cls: '',     lbl: 'Base Price' },
+      { val: p.is_overseas ? 'OS' : 'IND',    cls: p.is_overseas ? 'warn' : 'good', lbl: 'Origin' },
+      { val: p.is_uncapped ? 'UC' : 'CAP',    cls: p.is_uncapped ? 'good' : '',     lbl: 'Status' },
+    ].map((s,i) => `<div class="adv-stat" style="animation-delay:${i*0.04}s">
+      <div class="adv-stat-val ${s.cls}"${s.color?` style="color:${s.color}"`:''}>${s.val}</div>
+      <div class="adv-stat-lbl">${s.lbl}</div>
+    </div>`).join('');
+  }
+
+  // Bid data
+  const hasBid = state.current_highest_bid > 0;
+  el('current-bid').textContent = hasBid ? fmt(state.current_highest_bid) : 'No bids yet';
+  const leadEl = el('leading-team');
+  if (leadEl) {
+    leadEl.textContent = state.highest_team
+      ? state.highest_team.team_name + (isMe ? ' 🟢 (You)' : '') : '—';
+    leadEl.style.color = isMe ? 'var(--green)' : '';
+  }
+  el('second-bid').textContent  = state.second_highest_bid > 0 ? fmt(state.second_highest_bid) : '—';
+  el('second-team').textContent = state.second_team?.team_name || '—';
+
+  const next = hasBid ? Number(state.current_highest_bid)+0.25 : Number(p.base_price);
+  const bidInput = el('bid-input');
+  if (bidInput) { bidInput.value = next.toFixed(2); bidInput.min = next.toFixed(2); bidInput.step = '0.25'; }
+
+  const bidBtn = el('bid-btn'), undoBtn = el('undo-bid-btn');
+  if (isMe) {
+    if (bidBtn)  bidBtn.style.display  = 'none';
+    if (undoBtn) undoBtn.style.display = (state.prev_bid_team_purse != null && !paused) ? 'inline-flex' : 'none';
+    if (bidInput) bidInput.disabled = true;
+  } else {
+    if (bidBtn)  { bidBtn.style.display = ''; bidBtn.disabled = paused; }
+    if (undoBtn) undoBtn.style.display = 'none';
+    if (bidInput) bidInput.disabled = paused;
+  }
+  const errEl = el('bid-error'); if (errEl) errEl.textContent = '';
+
+  hide('no-auction'); hide('set-auction-view'); hide('rtm-pending'); show('player-card');
+  if (paused) { stopTimer(); const t = el('timer'); if (t) { t.textContent = 'Paused'; t.className = 'timer'; } }
+  else startTimer(state.bid_timer_end);
 }
 
 // ── RTM pending screen ────────────────────────────────────────
@@ -225,11 +447,9 @@ function renderRTMPending(state) {
   const price = fmt(state.rtm_match_price || 0);
   const p = state.current_player;
 
-  // Sound + visual alert — only once per RTM event
   if (isRTMTeam && !_rtmAlerted) {
     _rtmAlerted = true;
     playRTMAlert();
-    // Flash the entire page background briefly
     document.body.style.transition = 'background 0.2s';
     document.body.style.background = 'rgba(240,180,41,0.15)';
     setTimeout(() => { document.body.style.background = ''; }, 800);
@@ -253,7 +473,7 @@ function renderRTMPending(state) {
         <img src="${imgSrc(p?.image_url)}" onerror="this.onerror=null;this.src=window._SIL" alt="" class="rtm-player-img">
         <div style="flex:1;min-width:0;">
           <div class="rtm-player-name">${p?.name||'—'}</div>
-          <div class="rtm-player-sub">${p?.role||''} · ${p?.ipl_team||''}${p?.previous_ipl_team?' · Prev: '+p.previous_ipl_team:''}</div>
+          <div class="rtm-player-sub">${p?.role||''} · ${p?.ipl_team||''}${p?.prev_bfl_team?' · Prev BFL: '+p.prev_bfl_team:''}</div>
           <div class="rtm-price">Winning bid: <strong>${price}</strong></div>
           <div class="rtm-team-msg">${isRTMTeam
             ? `<span style="color:var(--gold);">✦ Your franchise can RTM at ${price}!</span>`
@@ -283,7 +503,7 @@ async function exerciseRTM(accept) {
 async function renderSetInPlayerCard(state) {
   const { data: slots, error } = await sb.from('auction_slots')
     .select(`*,
-      player:players_master(id,name,role,ipl_team,base_price,image_url,is_overseas,is_uncapped,is_rtm_eligible,is_retained),
+      player:players_master(id,name,role,ipl_team,base_price,image_url,is_overseas,is_uncapped,is_rtm_eligible,is_retained,bfl_avg),
       highest_team:teams!auction_slots_current_highest_team_id_fkey(team_name,id),
       second_team:teams!auction_slots_second_highest_team_id_fkey(team_name,id)`)
     .eq('set_name', state.current_set_name).eq('status', 'live');
@@ -297,7 +517,6 @@ async function renderSetInPlayerCard(state) {
 
   const existingGrid = el('set-slots-grid');
   if (!existingGrid) {
-    // ── First render ──
     const cards = slots.map(slot => buildSlotCardHTML(slot)).join('');
     el('player-card').innerHTML = `
       <div class="set-auction-header" style="margin-bottom:12px;">
@@ -312,7 +531,6 @@ async function renderSetInPlayerCard(state) {
       </div>
       <div class="team-set-slots-grid" id="set-slots-grid">${cards}</div>`;
   } else {
-    // ── Patch only changed data — zero flicker ──
     slots.forEach(slot => patchSlotCard(slot));
   }
 
@@ -352,9 +570,7 @@ function buildSlotCardHTML(slot) {
         ${tags ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${tags}</div>` : ''}
       </div>
     </div>
-    <div class="set-slot-bid" id="sb-${slot.id}">
-      ${buildSlotBidHTML(slot)}
-    </div>
+    <div class="set-slot-bid" id="sb-${slot.id}">${buildSlotBidHTML(slot)}</div>
     ${bidArea}
     <div id="serr-${slot.id}" class="error-msg" style="font-size:11px;min-height:0;"></div>
   </div>`;
@@ -377,13 +593,10 @@ function patchSlotCard(slot) {
   const isMe   = slot.current_highest_team_id === myTeam?.id;
   const hasBid = slot.current_highest_bid > 0;
   const next   = hasBid ? Number(slot.current_highest_bid)+0.25 : Number(slot.player?.base_price||0);
-
   const card = document.getElementById('set-card-'+slot.id); if (!card) return;
   card.className = 'team-slot-card' + (isMe ? ' leading' : '');
-
   const bidDiv = document.getElementById('sb-'+slot.id);
   if (bidDiv) bidDiv.innerHTML = buildSlotBidHTML(slot);
-
   const sa = document.getElementById('sa-'+slot.id);
   if (sa) {
     const hasInput = !!document.getElementById('sbid-'+slot.id);
@@ -403,87 +616,6 @@ function patchSlotCard(slot) {
   }
 }
 
-// ── Live single-player card ───────────────────────────────────
-function renderLivePlayer(state, paused) {
-  const p = state.current_player;
-  const isMe = state.current_highest_team_id === myTeam?.id;
-
-  // Restore standard player card HTML if previously replaced by set view
-  if (!el('player-img')) {
-    el('player-card').innerHTML = `
-      <div class="player-card-inner">
-        <img id="player-img" class="player-avatar-lg" src="" alt="" style="display:none;"
-          onerror="this.onerror=null;if(window._SIL){this.src=window._SIL;}else{this.style.display='none';}">
-        <div class="player-info-text">
-          <div id="player-name" class="player-name">—</div>
-          <div class="player-meta">
-            <span>🎭 <span id="player-role">—</span></span>
-            <span>🏏 <span id="player-team">—</span></span>
-            <span>📁 <span id="player-set">—</span></span>
-            <span>💰 Base: <span id="player-base">—</span></span>
-          </div>
-          <div id="player-flags" class="player-flags"></div>
-        </div>
-      </div>
-      <div class="bid-area">
-        <div class="timer-wrap"><div class="timer-label">Time Left</div><div class="timer" id="timer">—</div></div>
-        <div class="bid-stats">
-          <div class="bid-stat"><div class="bid-stat-label">Highest Bid</div><div class="bid-stat-value" id="current-bid">—</div><div class="bid-stat-sub" id="leading-team">—</div></div>
-          <div class="bid-stat"><div class="bid-stat-label">2nd Highest</div><div class="bid-stat-value second" id="second-bid">—</div><div class="bid-stat-sub" id="second-team">—</div></div>
-        </div>
-        <div class="bid-row">
-          <input class="form-input" type="number" id="bid-input" placeholder="Amount (Cr)" step="0.25" min="0.5">
-          <button class="btn btn-gold" id="bid-btn" onclick="placeBid()">Bid</button>
-          <button class="btn btn-ghost" id="undo-bid-btn" onclick="undoBid()" style="display:none;">↩ Undo</button>
-        </div>
-        <div id="bid-error" class="error-msg"></div>
-        <div class="info-msg">Bids must be multiples of ₹0.25 Cr · Press Enter to bid</div>
-      </div>
-      <div id="bid-history-wrap"></div>
-      <div id="mini-history-wrap-live"></div>`;
-  }
-
-  const img = el('player-img');
-  if (img) { img.src = imgSrc(p.image_url); img.onerror = () => img.src = SIL; img.style.display = 'block'; }
-  el('player-name').textContent = p.name;
-  el('player-role').textContent = p.role;
-  el('player-team').textContent = p.ipl_team || '—';
-  el('player-base').textContent = fmt(p.base_price);
-  el('player-set').textContent  = p.set_name  || '—';
-  let flags = p.is_overseas ? '<span class="tag tag-overseas">Overseas</span>' : '<span class="tag tag-indian">Indian</span>';
-  flags += p.is_uncapped ? ' <span class="tag tag-uncapped">Uncapped</span>' : ' <span class="tag tag-capped">Capped</span>';
-  if (p.is_retained) flags += ' <span class="tag tag-retained">Retained (RTN)</span>';
-  if (p.is_rtm_eligible && !p.is_retained) flags += ' <span class="tag tag-rtm">RTM Eligible</span>';
-  el('player-flags').innerHTML = flags;
-
-  const hasBid = state.current_highest_bid > 0;
-  el('current-bid').textContent = hasBid ? fmt(state.current_highest_bid) : 'No bids yet';
-  const leadEl = el('leading-team');
-  if (leadEl) { leadEl.textContent = state.highest_team ? state.highest_team.team_name + (isMe ? ' 🟢 (You)' : '') : '—'; leadEl.style.color = isMe ? 'var(--green)' : ''; }
-  el('second-bid').textContent  = state.second_highest_bid > 0 ? fmt(state.second_highest_bid) : '—';
-  el('second-team').textContent = state.second_team?.team_name || '—';
-
-  const next = hasBid ? Number(state.current_highest_bid)+0.25 : Number(p.base_price);
-  const bidInput = el('bid-input');
-  if (bidInput) { bidInput.value = next.toFixed(2); bidInput.min = next.toFixed(2); bidInput.step = '0.25'; }
-
-  const bidBtn = el('bid-btn'), undoBtn = el('undo-bid-btn');
-  if (isMe) {
-    if (bidBtn)  bidBtn.style.display  = 'none';
-    if (undoBtn) undoBtn.style.display = (state.prev_bid_team_purse != null && !paused) ? 'inline-flex' : 'none';
-    if (bidInput) bidInput.disabled = true;
-  } else {
-    if (bidBtn)  { bidBtn.style.display = ''; bidBtn.disabled = paused; }
-    if (undoBtn) undoBtn.style.display = 'none';
-    if (bidInput) bidInput.disabled = paused;
-  }
-  const errEl = el('bid-error'); if (errEl) errEl.textContent = '';
-
-  hide('no-auction'); hide('set-auction-view'); hide('rtm-pending'); show('player-card');
-  if (paused) { stopTimer(); const t = el('timer'); if (t) { t.textContent = 'Paused'; t.className = 'timer'; } }
-  else startTimer(state.bid_timer_end);
-}
-
 // ── Bid history ───────────────────────────────────────────────
 async function loadBidHistory(playerId) {
   const wrap = el('bid-history-wrap'); if (!wrap || !playerId) return;
@@ -500,25 +632,6 @@ async function loadBidHistory(playerId) {
       </div>`).join('')}
     </div>`;
   } catch(e) { wrap.innerHTML = ''; }
-}
-
-// ── Last result banner ────────────────────────────────────────
-function renderLastResult(state) {
-  const cont = el('last-result-container'); if (!cont) return;
-  if (!state.last_player_result) { cont.innerHTML = ''; return; }
-  if (state.last_player_result === 'set_done') {
-    cont.innerHTML = `<div class="last-result-banner sold-banner">
-      <div style="font-size:22px;margin-right:10px;">⚡</div>
-      <div style="flex:1;min-width:0;"><div class="lr-name">Set Complete</div><div class="lr-detail">${state.last_sold_to_team||''}</div></div>
-      <div class="lr-price lr-sold">DONE</div></div>`; return;
-  }
-  const p = state.last_player, sold = state.last_player_result === 'sold';
-  cont.innerHTML = `<div class="last-result-banner ${sold?'sold-banner':'unsold-banner'}">
-    <img src="${imgSrc(p?.image_url)}" onerror="this.onerror=null;this.src=window._SIL" alt="">
-    <div style="flex:1;min-width:0;"><div class="lr-name">${p?.name||'Unknown'}</div>
-      <div class="lr-detail">${p?.role||''}${sold?' · Sold to <strong>'+(state.last_sold_to_team||'?')+'</strong>':' · Unsold'}</div></div>
-    <div class="lr-price ${sold?'lr-sold':'lr-unsold'}">${sold?fmt(state.last_sold_price):'UNSOLD'}</div>
-  </div>`;
 }
 
 // ── Mini history ──────────────────────────────────────────────
@@ -627,7 +740,7 @@ function stopRTMTimer() { clearInterval(rtmTimerInterval); rtmTimerInterval = nu
 // ── Set slot realtime ─────────────────────────────────────────
 function subscribeSetSlots(setName) {
   if (setSlotChannel) return;
-  setSlotChannel = sb.channel('set-slots-v14-' + setName)
+  setSlotChannel = sb.channel('set-slots-v25-' + setName)
     .on('postgres_changes', { event:'UPDATE', schema:'public', table:'auction_slots', filter:'set_name=eq.'+setName }, () => {
       _lastSlotsHash = ''; _lastStateHash = ''; fetchState();
     }).subscribe();
@@ -725,14 +838,15 @@ async function loadStats() {
   } catch(e) { console.warn('[Stats]', e.message); }
 }
 
-// ── Squad ─────────────────────────────────────────────────────
+// ── Squad with full validation ────────────────────────────────
 async function loadSquad() {
   if (_squadLoading) return; _squadLoading = true;
   try {
     const { data: rows, error } = await sb.from('team_players')
-      .select('sold_price,is_retained,is_rtm,player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price)')
+      .select('sold_price,is_retained,is_rtm,player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)')
       .eq('team_id', myTeam.id);
     const list = error ? [] : (rows || []);
+    _lastSquadData = list;
     const auctionSpent = list.filter(r=>!r.is_retained).reduce((s,r)=>s+Number(r.sold_price||0),0);
     const retainSpent  = list.filter(r=> r.is_retained).reduce((s,r)=>s+Number(r.sold_price||0),0);
     if (el('squad-spent')) el('squad-spent').textContent = retainSpent > 0
@@ -767,38 +881,82 @@ async function loadSquad() {
   finally { _squadLoading = false; }
 }
 
+// ── Squad composition validator ───────────────────────────────
 function renderSquadComp(players) {
   const cont = el('squad-comp'); if (!cont) return;
   if (!players.length) { cont.innerHTML = ''; return; }
-  const wk=players.filter(p=>p.role==='Wicket-Keeper').length;
-  const bat=players.filter(p=>p.role==='Batsman').length;
-  const bowl=players.filter(p=>p.role==='Bowler').length;
-  const ar=players.filter(p=>p.role==='All-Rounder').length;
-  const os=players.filter(p=>p.is_overseas).length;
-  const issues=[];
-  if(wk<1)issues.push(`Need ${1-wk} WK`);
-  if(bat<3)issues.push(`Need ${3-bat} BAT`);
-  if(bowl<3)issues.push(`Need ${3-bowl} BOWL`);
-  if(ar<2)issues.push(`Need ${2-ar} AR`);
-  if(os>4)issues.push('Too many Overseas');
-  cont.innerHTML=`<div class="${issues.length?'squad-warning':'squad-ok'}" style="border-radius:6px;margin-top:6px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
-      <span>${issues.length?'⚠ '+issues.join(' · '):'✓ Squad OK'}</span>
-      <span style="font-size:11px;opacity:0.7;">WK:${wk} · BAT:${bat} · BOWL:${bowl} · AR:${ar} · OS:${os}/4</span>
-    </div></div>`;
+
+  const wk   = players.filter(p => p.role === 'Wicket-Keeper').length;
+  const bat  = players.filter(p => p.role === 'Batter').length;
+  const bowl = players.filter(p => p.role === 'Bowler').length;
+  const ar   = players.filter(p => p.role === 'All-Rounder').length;
+  const uc   = players.filter(p => p.is_uncapped).length;
+  const os   = players.filter(p => p.is_overseas).length;
+  const total= players.length;
+
+  // IPL team count check (max 3 per IPL team, advantage holders exempt)
+  const iplCounts = {};
+  const isAdv = myTeam?.is_advantage_holder;
+  players.forEach(p => {
+    if (p.ipl_team) iplCounts[p.ipl_team] = (iplCounts[p.ipl_team]||0) + 1;
+  });
+  const iplViolations = isAdv ? [] : Object.entries(iplCounts).filter(([t,c]) => c > 3).map(([t]) => t);
+
+  const issues = [];
+  if (wk < 1)   issues.push(`Need ${1-wk} more WK`);
+  if (bat < 2)  issues.push(`Need ${2-bat} more BAT`);
+  if (bowl < 3) issues.push(`Need ${3-bowl} more BOWL`);
+  if (ar < 2)   issues.push(`Need ${2-ar} more AR`);
+  if (uc < 1)   issues.push('Need 1+ Uncapped');
+  if (os > 4)   issues.push(`OS limit exceeded (${os}/4)`);
+  if (total > 12) issues.push(`Too many players (${total}/12)`);
+  iplViolations.forEach(t => issues.push(`Max 3 from ${t}`));
+
+  const allMet = !issues.length;
+  const complete = total === 12 && allMet;
+
+  const roleDefs = [
+    { label:'WK',   val:wk,   min:1 },
+    { label:'BAT',  val:bat,  min:2 },
+    { label:'BOWL', val:bowl, min:3 },
+    { label:'AR',   val:ar,   min:2 },
+    { label:'UC',   val:uc,   min:1 },
+    { label:'OS',   val:os,   max:4 },
+  ];
+
+  cont.innerHTML = `<div class="squad-comp-bar">
+    <div class="squad-comp-header">
+      <span class="${complete ? 'squad-comp-ok' : allMet ? 'squad-comp-ok' : 'squad-comp-warn'}">
+        ${complete ? '✓ Squad Complete' : allMet ? '✓ Requirements Met' : '⚠ ' + issues.length + ' issue(s)'}
+      </span>
+      <span style="font-size:11px;opacity:0.6;">${total}/12 players</span>
+    </div>
+    <div class="squad-role-grid">
+      ${roleDefs.map(r => {
+        const ok = r.max ? r.val <= r.max : r.val >= r.min;
+        return `<div class="squad-role-chip ${ok?'met':'unmet'}">
+          <div class="squad-role-chip-val">${r.val}${r.max?'/'+r.max:''}</div>
+          <div class="squad-role-chip-lbl">${r.label}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${issues.length ? `<div class="squad-issues-list">${issues.map(i => `<span class="squad-issue-tag">${i}</span>`).join('')}</div>` : ''}
+  </div>`;
 }
 
 // ── Export CSV ────────────────────────────────────────────────
 async function exportSquadCSV() {
   try {
     const { data: rows } = await sb.from('team_players')
-      .select('sold_price,is_retained,is_rtm,player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price)')
+      .select('sold_price,is_retained,is_rtm,player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)')
       .eq('team_id', myTeam.id);
-    const lines = [['#','Player','Role','IPL Team','Base (Cr)','Paid (Cr)','Retained','RTM','Overseas','Uncapped']];
+    const lines = [['#','Player','Role','IPL Team','BFL Avg','Base (Cr)','Paid (Cr)','Retained','RTM','Overseas','Uncapped']];
     (rows||[]).forEach((r,i) => {
       const p = r.player || {};
-      lines.push([i+1,p.name||'?',p.role||'?',p.ipl_team||'?',p.base_price||0,
-        Number(r.sold_price||0).toFixed(2),r.is_retained?'Yes':'',r.is_rtm?'Yes':'',
+      lines.push([i+1,p.name||'?',p.role||'?',p.ipl_team||'?',
+        p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—',
+        p.base_price||0, Number(r.sold_price||0).toFixed(2),
+        r.is_retained?'Yes':'',r.is_rtm?'Yes':'',
         p.is_overseas?'Yes':'',p.is_uncapped?'Yes':'']);
     });
     const csv = lines.map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -810,10 +968,84 @@ async function exportSquadCSV() {
   } catch(e) { toast('Export failed', 'error'); }
 }
 
+// ── Export PDF (team squad) ───────────────────────────────────
+async function exportSquadPDF() {
+  try {
+    const { data: rows } = await sb.from('team_players')
+      .select('sold_price,is_retained,is_rtm,player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)')
+      .eq('team_id', myTeam.id);
+    const list = (rows||[]);
+    list.sort((a,b) => {
+      if ((b.is_retained?1:0) !== (a.is_retained?1:0)) return (b.is_retained?1:0)-(a.is_retained?1:0);
+      return (a.player?.name||'').localeCompare(b.player?.name||'');
+    });
+    const totalSpent = list.reduce((s,r)=>s+Number(r.sold_price||0),0);
+    const os = list.filter(r=>r.player?.is_overseas).length;
+    const uc = list.filter(r=>r.player?.is_uncapped).length;
+    const rtn= list.filter(r=>r.is_retained).length;
+
+    const rows_html = list.map((tp,i) => {
+      const p = tp.player||{};
+      const tags = [
+        tp.is_retained ? 'RTN' : '',
+        tp.is_rtm      ? 'RTM' : '',
+        p.is_overseas  ? 'OS'  : '',
+        p.is_uncapped  ? 'UC'  : '',
+      ].filter(Boolean).join(' ');
+      return `<tr style="${tp.is_retained?'background:#fffbeb;':''}">
+        <td>${i+1}</td>
+        <td><strong>${p.name||'?'}</strong></td>
+        <td>${p.role||'—'}</td>
+        <td>${p.ipl_team||'—'}</td>
+        <td style="text-align:center;">${p.bfl_avg?Number(p.bfl_avg).toFixed(1):'—'}</td>
+        <td>₹${p.base_price||0}</td>
+        <td style="font-weight:700;color:#b7791f;">₹${Number(tp.sold_price||0).toFixed(2)}</td>
+        <td style="font-size:11px;color:#666;">${tags}</td>
+      </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>${myTeam.team_name} — BFL 2026 Squad</title>
+      <style>
+        body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:24px;}
+        h1{font-size:22px;margin-bottom:4px;color:#1a1a1a;}
+        .sub{font-size:12px;color:#666;margin-bottom:16px;}
+        .stat-row{display:flex;gap:16px;margin-bottom:18px;flex-wrap:wrap;}
+        .stat{background:#f7f7f7;border:1px solid #ddd;border-radius:6px;padding:10px 16px;text-align:center;min-width:80px;}
+        .stat-val{font-size:20px;font-weight:700;color:#b7791f;}
+        .stat-lbl{font-size:10px;color:#666;text-transform:uppercase;}
+        table{width:100%;border-collapse:collapse;font-size:12px;}
+        th{background:#1a1a2e;color:#f0b429;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.4px;}
+        td{padding:7px 10px;border-bottom:1px solid #eee;}
+        @media print{body{padding:12px;}}
+      </style></head><body>
+      <h1>🏏 ${myTeam.team_name}</h1>
+      <div class="sub">BFL IPL 2026 Auction Squad · Generated ${new Date().toLocaleString('en-IN')}</div>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-val">${list.length}/12</div><div class="stat-lbl">Players</div></div>
+        <div class="stat"><div class="stat-val">₹${totalSpent.toFixed(1)}</div><div class="stat-lbl">Total Spent</div></div>
+        <div class="stat"><div class="stat-val">₹${Number(myTeam.purse_remaining).toFixed(1)}</div><div class="stat-lbl">Remaining</div></div>
+        <div class="stat"><div class="stat-val">${os}/4</div><div class="stat-lbl">Overseas</div></div>
+        <div class="stat"><div class="stat-val">${uc}</div><div class="stat-lbl">Uncapped</div></div>
+        <div class="stat"><div class="stat-val">${rtn}</div><div class="stat-lbl">Retained</div></div>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>BFL Avg</th><th>Base</th><th>Paid</th><th>Tags</th></tr></thead>
+        <tbody>${rows_html}</tbody>
+      </table>
+      <script>window.onload=()=>window.print();<\/script>
+    </body></html>`;
+
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+    toast('📄 PDF opened', 'success');
+  } catch(e) { toast('PDF failed', 'error'); }
+}
+
 // ── Realtime ──────────────────────────────────────────────────
 function subscribeRealtime() {
   if (realtimeChannel) sb.removeChannel(realtimeChannel);
-  realtimeChannel = sb.channel('team-v14-' + myTeam.id)
+  realtimeChannel = sb.channel('team-v25-' + myTeam.id)
     .on('postgres_changes', { event:'UPDATE', schema:'public', table:'auction_state' }, () => {
       _lastStateHash = ''; fetchState();
     })
@@ -825,15 +1057,11 @@ function subscribeRealtime() {
         updatePurseDisplay(); updateRTMBadge();
       }
     })
-    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'teams' }, () => {
-      loadAllTeams();
-    })
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'teams' }, () => { loadAllTeams(); })
     .on('postgres_changes', { event:'*', schema:'public', table:'team_players' }, () => {
       loadSquad(); loadStats(); loadAllTeams();
     })
-    .on('postgres_changes', { event:'INSERT', schema:'public', table:'unsold_log' }, () => {
-      loadStats();
-    })
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'unsold_log' }, () => { loadStats(); })
     .on('system', {}, p => {
       if (['CHANNEL_ERROR','TIMED_OUT'].includes(p.status)) setTimeout(subscribeRealtime, 8000);
     }).subscribe();
