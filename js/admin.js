@@ -10,7 +10,9 @@ let unsoldIds      = new Set();
 let unsoldLogMap   = {};
 let currentState   = null;
 let timerInterval  = null;
-let autoSellTimer  = null;
+let autoSellTimer      = null;
+let _autoSellCdTimer   = null;   // countdown interval for warning
+let _qlFocusIdx        = -1;     // quick-launch keyboard index
 let sortKey        = 'name';
 let sortDir        = 'asc';
 let hSortKey       = 'sold_at';
@@ -31,6 +33,27 @@ const MAX_RETRY = 5;
 
 const SILHOUETTE_ADMIN = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23111520' rx='40'/%3E%3Ccircle cx='40' cy='28' r='14' fill='%2364748b'/%3E%3Cellipse cx='40' cy='70' rx='22' ry='18' fill='%2364748b'/%3E%3C/svg%3E";
 window._SIL_ADMIN = SILHOUETTE_ADMIN;
+
+function getIPLColors(code) {
+  const map = {
+    CSK:{ primary:'#f7c948', secondary:'#00184e', glow:'rgba(247,201,72,0.3)' },
+    MI: { primary:'#005da0', secondary:'#d1ab3e', glow:'rgba(0,93,160,0.35)' },
+    RCB:{ primary:'#d41620', secondary:'#1a1a1a', glow:'rgba(212,22,32,0.35)' },
+    KKR:{ primary:'#6a1bac', secondary:'#b08c3c', glow:'rgba(106,27,172,0.35)' },
+    SRH:{ primary:'#f26522', secondary:'#1a1a1a', glow:'rgba(242,101,34,0.35)' },
+    DC: { primary:'#004c93', secondary:'#ef2826', glow:'rgba(0,76,147,0.35)' },
+    PBKS:{ primary:'#aa192f', secondary:'#dbbe6c', glow:'rgba(170,25,47,0.35)' },
+    RR: { primary:'#2d62a4', secondary:'#e83f5b', glow:'rgba(45,98,164,0.35)' },
+    GT: { primary:'#1c3e6e', secondary:'#c8a84b', glow:'rgba(28,62,110,0.35)' },
+    LSG:{ primary:'#00b4d8', secondary:'#c6a200', glow:'rgba(0,180,216,0.35)' },
+  };
+  return map[(code||'').toUpperCase()] || null;
+}
+function getIPLLogoUrl(code) {
+  if (!code) return null;
+  const c = (code||'').trim().toUpperCase();
+  return `https://documents.iplt20.com/ipl/${c}/logos/LogoOutline/${c}outline.png`;
+}
 
 const el  = id => document.getElementById(id);
 const fmt = v  => '₹' + Number(v).toFixed(2) + ' Cr';
@@ -274,6 +297,12 @@ function clearFilters() {
 }
 
 // ─── AUCTION CONTROLS ─────────────────────────────────────────
+// ─── SERVER-SIDE BID VALIDATION NOTE ─────────────────────────
+// The place_bid RPC enforces: bid > current_highest, bid is multiple of 0.25,
+// bid <= purse_remaining, auction is live, player matches current_player_id.
+// Any tampered client call will be rejected server-side.
+// ──────────────────────────────────────────────────────────────
+
 async function startAuction(playerId) {
   clearError();
   let forceOverride = false;
@@ -536,8 +565,9 @@ async function toggleAutopilot() {
 async function setAutopilotDelay(seconds) {
   const s = parseInt(seconds);
   if (isNaN(s)) return;
-  const { error } = await sb.rpc('set_autopilot_delay', { p_seconds: s });
+  const { data, error } = await sb.rpc('set_autopilot_delay', { p_seconds: s });
   if (error) return showError(error.message);
+  if (!data?.success) return showError(data?.error || 'Error');
   toast('Auto-sell delay: ' + s + 's', 'info');
 }
 
@@ -591,7 +621,7 @@ async function loadAuctionState() {
     autopilotEnabled = !!state.autopilot_enabled;
     currentState     = state;
     setConn('connected'); clearError();
-    renderAuctionState(state); renderAutopilotBtn();
+    renderAuctionState(state); renderAutopilotBtn(); renderUnsoldQueue();
   }, 'loadAuctionState');
 }
 
@@ -616,21 +646,77 @@ function renderAuctionState(state) {
 
   if ((isLive || isPaused) && state.current_player) {
     const p = state.current_player;
-    const img = el('cp-img');
-    if (img) { img.src = p.image_url || SILHOUETTE_ADMIN; img.onerror = () => { img.src = SILHOUETTE_ADMIN; }; img.style.display = 'block'; }
-    el('cp-name').textContent = p.name;
-    el('cp-meta').textContent = `${p.role} · ${p.ipl_team||'—'} · Set: ${p.set_name||'—'} · Base ₹${p.base_price} Cr`;
 
+    // IPL colours
+    const colors  = typeof getIPLColors === 'function' ? getIPLColors(p.ipl_team) : null;
+    const logoUrl = typeof getIPLLogoUrl === 'function' ? getIPLLogoUrl(p.ipl_team) : null;
+
+    // IPL band
+    const band = el('admin-ipl-band');
+    if (band) band.style.background = colors ? colors.primary : 'var(--gold-dim)';
+
+    // Avatar
+    const img = el('cp-img');
+    if (img) {
+      img.src = p.image_url || SILHOUETTE_ADMIN;
+      img.onerror = () => { img.src = SILHOUETTE_ADMIN; };
+      img.style.display = 'block';
+      img.style.borderColor = colors ? colors.primary : 'var(--gold-dim)';
+      if (colors) img.style.boxShadow = `0 0 16px ${colors.glow}`;
+    }
+
+    // IPL logo overlay
+    const logoEl = el('cp-ipl-logo');
+    if (logoEl && logoUrl) { logoEl.src = logoUrl; logoEl.style.display = 'block'; }
+    else if (logoEl) logoEl.style.display = 'none';
+
+    // Name
+    el('cp-name').textContent = p.name;
+
+    // Meta badges
+    const metaBadges = el('cp-meta-badges');
+    if (metaBadges) {
+      metaBadges.innerHTML = [
+        { icon:'🎭', val: p.role || '—' },
+        { icon:'🏏', val: p.ipl_team || '—', color: colors?.primary },
+        { icon:'📁', val: p.set_name || '—' },
+        { icon:'💰', val: `₹${p.base_price} Cr` },
+      ].map(m => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:13px;
+        color:var(--muted);background:rgba(255,255,255,0.04);border:1px solid var(--border);
+        border-radius:4px;padding:3px 8px;">
+        ${m.icon} <strong style="color:${m.color||'var(--text2)'};font-weight:600;">${m.val}</strong>
+      </span>`).join('');
+    }
+
+    // Flags
     let flags = p.is_overseas
-      ? '<span class="tag tag-overseas">Overseas</span> '
-      : '<span class="tag tag-indian">Indian</span> ';
+      ? '<span class="tag tag-overseas">🌍 Overseas</span>'
+      : '<span class="tag tag-indian">🇮🇳 Indian</span>';
     flags += p.is_uncapped
-      ? '<span class="tag tag-uncapped">Uncapped</span>'
-      : '<span class="tag tag-capped">Capped</span>';
-    // RTM Eligible = player can be RTM'd at auction time (from another team, not pre-retained)
-    if (p.is_rtm_eligible && !p.is_retained) flags += ' <span class="tag tag-rtm">RTM Eligible</span>';
+      ? ' <span class="tag tag-uncapped">Uncapped</span>'
+      : ' <span class="tag tag-capped">Capped</span>';
+    if (p.is_rtm_eligible && !p.is_retained) flags += ' <span class="tag tag-rtm">🔄 RTM</span>';
+    if (p.is_retained) flags += ' <span class="tag tag-retained">📌 Retained</span>';
     el('cp-flags').innerHTML = flags;
 
+    // Mini stats grid — 4 chips, using shared .adv-stat CSS (matches auction page)
+    const statsGrid = el('cp-stats-grid');
+    if (statsGrid) {
+      const avg = p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—';
+      const avgCls = p.bfl_avg > 100 ? 'good' : p.bfl_avg > 50 ? '' : p.bfl_avg ? 'warn' : '';
+      const roleShort = { 'Batter':'BAT', 'Bowler':'BOWL', 'All-Rounder':'AR', 'Wicket-Keeper':'WK' }[p.role] || (p.role||'—').substring(0,4);
+      statsGrid.innerHTML = [
+        { val: avg,                                  cls: avgCls,                                        lbl: '📊 BFL Avg' },
+        { val: roleShort,                            cls: '',                                            lbl: '🎭 Role' },
+        { val: p.is_overseas ? '🌍 OS' : '🇮🇳 IND',  cls: p.is_overseas ? 'warn' : 'good',               lbl: 'Origin' },
+        { val: p.is_uncapped ? 'UNCAP' : 'CAP',     cls: p.is_uncapped ? 'good' : '',                   lbl: '🎖 Status' },
+      ].map((s,i) => `<div class="adv-stat" style="animation-delay:${i*0.05}s">
+        <div class="adv-stat-val ${s.cls}"${(s.lbl==='🏏 IPL'&&colors)?` style="color:${colors.primary}"`:''}>${s.val}</div>
+        <div class="adv-stat-lbl">${s.lbl}</div>
+      </div>`).join('');
+    }
+
+    // Bid data
     const hasBid = state.current_highest_bid > 0;
     el('current-bid').textContent  = hasBid ? fmt(state.current_highest_bid) : 'No bids';
     el('leading-team').textContent = state.highest_team?.team_name || '—';
@@ -710,8 +796,10 @@ function startTimer(endTime) {
     if (rem === 0) {
       stopTimer();
       if (!autopilotEnabled) {
-        // Auto-trigger force sell after 12s (server has 10s grace, need extra margin)
+        // Show warning countdown, then fire at 12s
+        showAutoSellWarning(12);
         autoSellTimer = setTimeout(async () => {
+          hideAutoSellWarning();
           if (currentState?.status === 'live') await forceSell();
         }, 12000);
       }
@@ -721,7 +809,61 @@ function startTimer(endTime) {
   timerInterval = setInterval(tick, 300);
 }
 function stopTimer()     { clearInterval(timerInterval); timerInterval = null; }
-function clearAutoSell() { clearTimeout(autoSellTimer);  autoSellTimer = null; }
+function clearAutoSell() {
+  clearTimeout(autoSellTimer); autoSellTimer = null;
+  hideAutoSellWarning();
+}
+
+function showAutoSellWarning(totalSecs) {
+  const w = el('autosell-warning'); if (!w) return;
+  w.classList.add('visible');
+  let rem = totalSecs;
+  const cd = el('autosell-cd'); if (cd) cd.textContent = rem;
+  clearInterval(_autoSellCdTimer);
+  _autoSellCdTimer = setInterval(() => {
+    rem = Math.max(0, rem - 1);
+    if (cd) cd.textContent = rem;
+    if (rem <= 0) clearInterval(_autoSellCdTimer);
+  }, 1000);
+}
+
+function hideAutoSellWarning() {
+  const w = el('autosell-warning'); if (w) w.classList.remove('visible');
+  clearInterval(_autoSellCdTimer); _autoSellCdTimer = null;
+}
+
+function cancelAutoSell() {
+  clearAutoSell();
+  toast('⏸ Auto-sell cancelled — use Force Sell when ready', 'info');
+}
+
+// ─── UNSOLD QUEUE ─────────────────────────────────────────────
+function renderUnsoldQueue() {
+  const cont = el('unsold-queue-container'); if (!cont) return;
+  if (!unsoldIds.size) { cont.innerHTML = ''; return; }
+  const items = allPlayers.filter(p => unsoldIds.has(p.id));
+  const SIL = window._SIL_ADMIN || '';
+  cont.innerHTML = `<div class="unsold-queue-panel">
+    <div class="unsold-queue-title">
+      📭 Unsold Queue
+      <span class="uq-count">${items.length} player${items.length !== 1 ? 's' : ''} awaiting re-launch</span>
+    </div>
+    <div class="unsold-queue-list">
+      ${items.map(p => `
+        <div class="uq-item">
+          <img src="${p.image_url || SIL}" alt=""
+            onerror="this.onerror=null;this.src='${SIL}'">
+          <span class="uq-name">${p.name}</span>
+          <span class="uq-meta">${p.role || '—'} · ${p.ipl_team || '—'} · ₹${p.base_price}Cr</span>
+          <div class="uq-actions">
+            <button class="btn btn-sm btn-start" onclick="startAuction('${p.id}')">↻ Re-launch</button>
+            <button class="btn btn-sm btn-ghost" title="Remove unsold mark"
+              onclick="undoUnsold('${p.id}')">↩</button>
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
 
 // ─── TEAMS ────────────────────────────────────────────────────
 async function loadTeams() {
@@ -740,18 +882,9 @@ async function loadTeams() {
       if (r.player?.is_overseas) osCounts[r.team_id] = (osCounts[r.team_id]||0) + 1;
     });
 
-    el('teams-tbody').innerHTML = allTeams.map(t => {
-      // If rtm_cards_total=0 and 0 retentions → should be 3; derive from 3-retained if DB is stale
-      const rtmTotal = (t.rtm_cards_total != null) ? t.rtm_cards_total : 0;
-      const rtmRem   = Math.max(0, rtmTotal - (t.rtm_cards_used||0));
-      return `<tr>
-        <td style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;">${t.team_name}${t.is_advantage_holder?' <span class="tag tag-advantage" style="font-size:10px;">ADV</span>':''}
-            ${rtmRem > 0 ? ` <span class="tag tag-rtm" style="font-size:10px;">RTM×${rtmRem}</span>` : ''}</td>
-        <td style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--gold);">${fmt(t.purse_remaining)}</td>
-        <td style="font-family:'Barlow Condensed',sans-serif;font-size:14px;">${counts[t.id]||0} / 12</td>
-        <td class="hide-sm" style="font-family:'Barlow Condensed',sans-serif;font-size:14px;">${osCounts[t.id]||0} / 4</td>
-      </tr>`;
-    }).join('');
+    // Store squad counts on allTeams for sort access
+    allTeams = allTeams.map(t => ({...t, playerCount: counts[t.id]||0, osCount: osCounts[t.id]||0}));
+    renderAdminTeams();
 
     const sel = el('squad-team-select');
     if (sel) {
@@ -761,6 +894,58 @@ async function loadTeams() {
       if (cur) sel.value = cur;
     }
   }, 'loadTeams');
+}
+
+// ─── ADMIN TEAMS SORT & RENDER ──────────────────────────────
+let _adminTeamsSort = { key: 'purse_remaining', dir: 'desc' };
+
+function adminSortTeams(key) {
+  if (_adminTeamsSort.key === key) _adminTeamsSort.dir = _adminTeamsSort.dir === 'asc' ? 'desc' : 'asc';
+  else { _adminTeamsSort.key = key; _adminTeamsSort.dir = key === 'team_name' ? 'asc' : 'desc'; }
+  renderAdminTeams();
+}
+
+function renderAdminTeams() {
+  const tbody = el('teams-tbody'); if (!tbody) return;
+  const { key, dir } = _adminTeamsSort;
+  const sorted = [...allTeams].sort((a, b) => {
+    let va = a[key] ?? '', vb = b[key] ?? '';
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    return dir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+  });
+
+  // Update header sort indicators
+  const keyMap = { team_name:'ath-name', purse_remaining:'ath-purse', playerCount:'ath-squad', osCount:'ath-os' };
+  Object.entries(keyMap).forEach(([k, id]) => {
+    const th = el(id); if (!th) return;
+    th.classList.remove('sort-asc','sort-desc');
+    if (k === key) th.classList.add('sort-' + dir);
+  });
+
+  tbody.innerHTML = sorted.map(t => {
+    const rtmTotal = (t.rtm_cards_total != null) ? t.rtm_cards_total : 0;
+    const rtmRem   = Math.max(0, rtmTotal - (t.rtm_cards_used||0));
+    const purse    = Number(t.purse_remaining);
+    const purseColor = purse <= 5 ? 'var(--red)' : purse <= 10 ? '#f6ad55' : 'var(--gold)';
+    const squadCount = t.playerCount || 0;
+    const osCount    = t.osCount    || 0;
+    return `<tr>
+      <td>
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;">${t.team_name}</span>
+        ${t.is_advantage_holder ? ' <span class="tag tag-advantage" style="font-size:10px;">⭐ ADV</span>' : ''}
+        ${rtmRem > 0 ? ` <span class="tag tag-rtm" style="font-size:10px;">🔄×${rtmRem}</span>` : ''}
+      </td>
+      <td style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;color:${purseColor};white-space:nowrap;">
+        ₹${purse.toFixed(1)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>
+      </td>
+      <td style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;white-space:nowrap;">
+        ${squadCount}<span style="color:var(--muted);font-size:12px;font-weight:400;">/12</span>
+      </td>
+      <td style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;white-space:nowrap;">
+        ${osCount}<span style="color:var(--muted);font-size:12px;font-weight:400;">/4</span>
+      </td>
+    </tr>`;
+  }).join('');
 }
 
 // ─── STATS ────────────────────────────────────────────────────
@@ -1430,6 +1615,96 @@ function toast(msg, type='info') {
 function showError(msg) { const e=el('admin-error'); if(e) e.textContent=msg; console.error('[Admin]',msg); }
 function clearError()   { const e=el('admin-error'); if(e) e.textContent=''; }
 
+// ─── QUICK-LAUNCH ─────────────────────────────────────────────
+function quickLaunchSearch(q) {
+  const dd = el('ql-dropdown');
+  if (!dd) return;
+  _qlFocusIdx = -1;
+  q = (q || '').trim();
+  if (!q) { dd.innerHTML = ''; dd.classList.remove('open'); return; }
+  const lq = q.toLowerCase();
+  const SIL = window._SIL_ADMIN || '';
+  const results = allPlayers.filter(p => {
+    if (soldMap[p.id]) return false; // skip sold
+    return p.name.toLowerCase().includes(lq)
+        || (p.role || '').toLowerCase().includes(lq)
+        || (p.ipl_team || '').toLowerCase().includes(lq)
+        || (p.set_name || '').toLowerCase().includes(lq);
+  }).slice(0, 10);
+
+  if (!results.length) {
+    dd.innerHTML = '<div class="ql-empty">No available players match "' + q + '"</div>';
+    dd.classList.add('open'); return;
+  }
+  dd.innerHTML = results.map((p, i) => {
+    const isUnsold = unsoldIds.has(p.id);
+    return `<div class="ql-item" data-idx="${i}" data-id="${p.id}"
+        onclick="qlLaunch('${p.id}')"
+        onmouseover="_qlFocusIdx=${i};qlHighlight()">
+      <img src="${p.image_url || SIL}" alt=""
+        onerror="this.onerror=null;this.src='${SIL}'">
+      <span class="ql-item-name">${p.name}</span>
+      <span class="ql-item-meta">${p.role || '?'} · ${p.ipl_team || '?'} · ₹${p.base_price}Cr</span>
+      ${isUnsold ? '<span class="ql-unsold-badge">Unsold</span>' : ''}
+    </div>`;
+  }).join('');
+  dd.classList.add('open');
+}
+
+function qlHighlight() {
+  const dd = el('ql-dropdown'); if (!dd) return;
+  dd.querySelectorAll('.ql-item').forEach((el, i) => {
+    el.classList.toggle('active', i === _qlFocusIdx);
+  });
+}
+
+function qlKey(e) {
+  const dd = el('ql-dropdown');
+  if (!dd || !dd.classList.contains('open')) return;
+  const items = [...dd.querySelectorAll('.ql-item[data-id]')];
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _qlFocusIdx = Math.min(_qlFocusIdx + 1, items.length - 1);
+    qlHighlight();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _qlFocusIdx = Math.max(_qlFocusIdx - 1, 0);
+    qlHighlight();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const active = dd.querySelector('.ql-item.active') || items[0];
+    if (active) qlLaunch(active.dataset.id);
+  } else if (e.key === 'Escape') {
+    dd.classList.remove('open');
+    const inp = el('ql-input'); if (inp) inp.value = '';
+  }
+}
+
+async function qlLaunch(playerId) {
+  const dd = el('ql-dropdown'), inp = el('ql-input');
+  if (dd) dd.classList.remove('open');
+  if (inp) inp.value = '';
+  if (!playerId) return;
+  const p = allPlayers.find(x => x.id === playerId);
+  if (!p) return;
+  const label = unsoldIds.has(p.id) ? 'Re-launch' : 'Start';
+  if (!await confirm2(
+    `**${label} auction** for:
+
+${p.name} (${p.role || '?'} · ${p.ipl_team || '?'})
+Base price: ₹${p.base_price} Cr`,
+    { title: label + ' Auction', icon: '▶', danger: false }
+  )) return;
+  await startAuction(playerId);
+}
+
+// Close dropdown on outside click
+document.addEventListener('click', e => {
+  const wrap = e.target.closest('.quick-launch-wrap');
+  if (!wrap) { const dd = el('ql-dropdown'); if (dd) dd.classList.remove('open'); }
+});
+
 init();
 
 // ═══════════════════════════════════════════════════════════════
@@ -1849,6 +2124,7 @@ function renderRTMSetup() {
 }
 
 async function setPrevBFLTeam(playerId, teamName, selectEl) {
+  const prevVal = selectEl.dataset.prevVal ?? selectEl.value;
   selectEl.disabled = true;
 
   const updates = teamName
@@ -1895,4 +2171,4 @@ async function setPrevBFLTeam(playerId, teamName, selectEl) {
 }
 
 // Hook into switchTab to lazy-load RTM setup
-// (Future implementation for lazy-loading RTM setup on tab switch)
+const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;

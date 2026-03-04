@@ -110,6 +110,54 @@
     .cdot{position:absolute;border-radius:2px;animation:cfetti linear both;}
 
     @media(max-width:480px){.card{padding:26px 18px 24px;}.logo-text{font-size:34px;}}
+
+    /* ── Rules card ── */
+    .rules-card{
+      background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);
+      border-radius:14px;padding:20px 18px;margin-bottom:14px;
+      min-height:260px;animation:card-in 0.3s ease both;
+    }
+    .rules-step{
+      font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;
+      color:var(--muted);margin-bottom:6px;
+    }
+    .rules-title{
+      font-size:20px;font-weight:800;color:var(--gold);
+      margin-bottom:10px;line-height:1.2;
+    }
+    .rules-body{font-size:13px;color:#a0aec0;line-height:1.7;}
+    .rules-body strong{color:#e2e8f0;}
+    .rules-body ul{margin:8px 0 8px 16px;padding:0;}
+    .rules-body li{margin-bottom:4px;}
+    .rules-body .rule-tag{
+      display:inline-block;padding:1px 7px;border-radius:4px;
+      font-size:11px;font-weight:700;font-family:'Barlow Condensed',sans-serif;
+      text-transform:uppercase;letter-spacing:0.5px;margin:1px 2px;
+      vertical-align:middle;
+    }
+    .tag-gold{background:rgba(240,180,41,0.15);color:var(--gold);border:1px solid rgba(240,180,41,0.3);}
+    .tag-blue{background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
+    .tag-red {background:rgba(229,62,62,0.15); color:#fc8181;border:1px solid rgba(229,62,62,0.3);}
+    .tag-green{background:rgba(56,161,105,0.15);color:#68d391;border:1px solid rgba(56,161,105,0.3);}
+    .tag-purple{background:rgba(139,92,246,0.15);color:#c4b5fd;border:1px solid rgba(139,92,246,0.3);}
+    .rules-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+    .rules-nav-btn{
+      padding:8px 16px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;
+      background:transparent;color:#a0aec0;cursor:pointer;
+      font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;
+      text-transform:uppercase;letter-spacing:0.5px;
+      transition:all 0.18s;white-space:nowrap;
+    }
+    .rules-nav-btn:hover:not(:disabled){border-color:var(--gold);color:var(--gold);}
+    .rules-nav-btn:disabled{opacity:0.25;cursor:not-allowed;}
+    .rules-nav-btn.finish{background:var(--gold);color:#000;border-color:var(--gold);}
+    .rules-nav-btn.finish:hover{box-shadow:0 4px 20px rgba(240,180,41,0.4);}
+    .rules-dots{display:flex;gap:6px;align-items:center;}
+    .rules-dot{
+      width:7px;height:7px;border-radius:50%;
+      background:rgba(255,255,255,0.15);transition:all 0.2s;cursor:pointer;
+    }
+    .rules-dot.active{background:var(--gold);transform:scale(1.3);}
   </style>
 </head>
 <body>
@@ -159,15 +207,34 @@
       <div class="footer-note">BFL Fantasy Cricket · Private System</div>
     </div>
 
-    <!-- WELCOME SCREEN -->
+    <!-- WELCOME / RULES SCREEN -->
     <div id="welcome-screen">
-      <span class="w-emoji" id="w-emoji">🏆</span>
-      <img id="w-ipl-logo" class="w-ipl-logo" src="" alt="">
-      <div class="w-title" id="w-title">Welcome!</div>
-      <div class="w-team"  id="w-team"></div>
-      <div class="w-stats" id="w-stats"></div>
-      <div class="w-bar-wrap"><div class="w-bar" id="w-bar"></div></div>
-      <div class="w-redir" id="w-redir">Entering auction room…</div>
+
+      <!-- Step 1: Welcome splash -->
+      <div id="ws-splash">
+        <span class="w-emoji" id="w-emoji">🏆</span>
+        <img id="w-ipl-logo" class="w-ipl-logo" src="" alt="">
+        <div class="w-title" id="w-title">Welcome!</div>
+        <div class="w-team"  id="w-team"></div>
+        <div class="w-stats" id="w-stats"></div>
+        <div style="margin-top:20px;">
+          <button class="login-btn" id="rules-btn" onclick="showRules()"
+            style="font-size:15px;padding:11px;">
+            📋 View Rules &amp; Start →
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Rules carousel -->
+      <div id="ws-rules" style="display:none;text-align:left;">
+        <div id="rules-card" class="rules-card"></div>
+        <div class="rules-nav">
+          <button class="rules-nav-btn" id="rules-prev" onclick="rulesNav(-1)">← Prev</button>
+          <div class="rules-dots" id="rules-dots"></div>
+          <button class="rules-nav-btn" id="rules-next" onclick="rulesNav(1)">Next →</button>
+        </div>
+      </div>
+
     </div>
 
   </div>
@@ -179,10 +246,10 @@
 let role = 'team';
 let teams = [];
 
-const IPL_LOGO = c => c ? `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png` : null;
+const IPL_LOGO = c => c ? `https://documents.iplt20.com/ipl/${c}/logos/LogoOutline/${c}outline.png` : null;
 
 const EMOJI = [
-  ['GUJARAT','⚡'],['MUMBAI','🔵'],['PUNJAB','♦️'],['CHENNAI','🦁'],
+  ['GUJARAT','⚡'],['MUMBAI',''],['PUNJAB','♦️'],['CHENNAI','🦁'],
   ['KOLKATA','💜'],['DELHI','🔷'],['RAJASTHAN','💙'],['SUNRISERS','🟠'],
   ['ROYAL','🔴'],['SUPREME','👑'],['LUCKNOW','🌊'],
 ];
@@ -321,9 +388,7 @@ async function showWelcome(userRole, team) {
         `<div class="ws-chip"><strong>${rtmRem}</strong><span>RTM Cards</span></div>`;
     }
   } catch(_) {}
-
-  animateBar(2400);
-  setTimeout(() => window.location.href='auction.html', 2600);
+  // Team users go to rules first — button there navigates to auction.html
 }
 
 function animateBar(ms) {
@@ -351,6 +416,176 @@ function spawnConfetti() {
     setTimeout(()=>d.remove(),2000);
   }
 }
+
+document.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+
+// ── Rules carousel ──────────────────────────────────────────
+const RULES = [
+  {
+    step: 'Overview',
+    title: '🏏 Welcome to BFL IPL 2026 Auction',
+    body: `You are a <strong>franchise owner</strong> competing to build the best IPL squad within your budget.
+<ul>
+  <li>Each team starts with a <strong class="rule-tag tag-gold">₹120 Cr purse</strong></li>
+  <li>You must sign exactly <strong class="rule-tag tag-blue">12 players</strong> to complete your squad</li>
+  <li>Auction runs in <strong>sets</strong> (individual) and <strong>set auctions</strong> (simultaneous bidding)</li>
+  <li>The auctioneer controls the pace — watch the screen at all times</li>
+  <li>This is a <strong>real-money free</strong> fantasy game — for bragging rights only 🏆</li>
+</ul>`
+  },
+  {
+    step: 'Purse & Bidding',
+    title: '💰 Purse & How to Bid',
+    body: `<ul>
+  <li>Your remaining purse is always shown in the <strong>top-right corner</strong> — watch it carefully</li>
+  <li>Minimum bid increment is <strong class="rule-tag tag-gold">₹0.25 Cr</strong> per step</li>
+  <li>The bid input auto-fills the minimum valid next bid — you can raise it</li>
+  <li>Press <strong>Enter</strong> or tap <strong>Bid</strong> to submit. Keyboard shortcut: <strong>B</strong> to focus the bid box</li>
+  <li>If you are outbid, the bid button re-appears immediately — be fast!</li>
+  <li>You can <strong class="rule-tag tag-red">Undo</strong> your own bid once (before the next bid comes in)</li>
+  <li>You <strong>cannot bid</strong> if your purse is too low or if adding this player would exceed squad limits</li>
+</ul>`
+  },
+  {
+    step: 'Squad Rules',
+    title: '👥 Building Your Squad',
+    body: `Your 12-player squad must satisfy IPL composition rules:
+<ul>
+  <li><strong class="rule-tag tag-blue">Min 1</strong> Wicket-Keeper (WK)</li>
+  <li><strong class="rule-tag tag-blue">Min 2</strong> Batters (BAT)</li>
+  <li><strong class="rule-tag tag-blue">Min 3</strong> Bowlers (BOWL)</li>
+  <li><strong class="rule-tag tag-blue">Min 2</strong> All-Rounders (AR)</li>
+  <li><strong class="rule-tag tag-blue">Min 1</strong> Uncapped player (UC)</li>
+  <li><strong class="rule-tag tag-red">Max 4</strong> Overseas players (OS)</li>
+  <li><strong class="rule-tag tag-red">Max 3</strong> players from any single IPL franchise</li>
+</ul>
+The <strong>Squad Composition bar</strong> on your sidebar shows real-time status.
+<span class="rule-tag tag-red">Red chips</span> = unmet requirements. Plan ahead!`
+  },
+  {
+    step: 'Retentions & RTM',
+    title: '🔄 Retentions & Right to Match',
+    body: `<ul>
+  <li><strong class="rule-tag tag-gold">Retained players</strong> are pre-assigned to your squad before auction — their cost is already deducted from your purse</li>
+  <li>Some teams have <strong class="rule-tag tag-purple">RTM cards</strong> (Right to Match) — shown in the navbar</li>
+  <li>When a player you previously owned goes to another team, you can <strong>exercise RTM</strong> to match their winning bid and take the player</li>
+  <li>You have a <strong>timer</strong> to decide — do not let it expire or you automatically decline</li>
+  <li>RTM is a <strong>one-shot</strong> per card — use them wisely</li>
+  <li>The <strong class="rule-tag tag-gold">Advantage</strong> badge means your team has special privileges this auction (ask your auctioneer)</li>
+</ul>`
+  },
+  {
+    step: 'Set Auctions',
+    title: '⚡ Set Auctions (Simultaneous Bidding)',
+    body: `During a <strong>Set Auction</strong>, multiple players go live at the same time:
+<ul>
+  <li>All players in the set are shown as cards — bid on any or all of them</li>
+  <li>There is a <strong>shared countdown timer</strong> for the whole set</li>
+  <li>Your purse is checked <strong>across all your winning bids</strong> simultaneously — you cannot overcommit</li>
+  <li>When the timer ends, the auctioneer closes the set: highest bidder per player wins</li>
+  <li>Players with <strong>no bids</strong> go unsold and may be re-auctioned individually later</li>
+  <li>You can undo a set bid while the timer is still running</li>
+</ul>`
+  },
+  {
+    step: 'Strategy Tips',
+    title: '🧠 Strategy & Tips',
+    body: `<ul>
+  <li><strong>Keep a buffer:</strong> Always hold ₹3–5 Cr back. You need at least <span class="rule-tag tag-gold">₹0.5 Cr × remaining slots</span> to fill your squad</li>
+  <li><strong>Watch the sidebar:</strong> The All Teams table shows every team's purse — bid harder when rivals run low</li>
+  <li><strong>Role gaps:</strong> If you need bowlers and few remain, you may be forced to overpay. Plug gaps early</li>
+  <li><strong>Overseas slots:</strong> Only 4 per squad — high-value OS players get expensive. Pick 4 carefully</li>
+  <li><strong>IPL franchise cap:</strong> Max 3 from any IPL team — don't lock yourself out of the best players</li>
+  <li><strong>Bid fast</strong> in set auctions — cards only update when you bid, not in real-time on the card</li>
+  <li>If the auctioneer pauses or resets, sit tight — everything resumes exactly where it left off</li>
+</ul>`
+  },
+  {
+    step: 'During the Auction',
+    title: '📡 Live Auction Interface',
+    body: `<ul>
+  <li>The <strong>Live Auction panel</strong> shows the current player, base price, current highest bid, 2nd highest, and timer</li>
+  <li>A <strong class="rule-tag tag-green">green (You)</strong> label means you are currently winning — your Bid button is replaced by Undo</li>
+  <li>The <strong>Last Result banner</strong> shows the outcome of the previous player (sold / unsold)</li>
+  <li>Your <strong>My Squad</strong> sidebar updates live as you win players</li>
+  <li>If you lose connection, a <strong class="rule-tag tag-red">banner appears at the top</strong> — the system keeps polling in the background so you won't miss bids</li>
+  <li>The <strong>timer turns red</strong> and blinks in the final 5 seconds — be ready</li>
+  <li>When no auction is active, the <strong>Recent Results</strong> feed shows latest sales</li>
+</ul>`
+  },
+  {
+    step: "You're Ready!",
+    title: "✅ You're All Set — Good Luck!",
+    body: `<ul>
+  <li>Tap <strong>Enter Auction Room</strong> below to join the live session</li>
+  <li>The auctioneer will start the first player when everyone is ready</li>
+  <li>Keep this tab open and your screen on during bidding</li>
+  <li>Do not share your password or log in from multiple devices</li>
+  <li>If something looks wrong, tell the auctioneer — do not close and reopen</li>
+</ul>
+<div style="margin-top:14px;text-align:center;font-size:22px;">🏏 &nbsp; May the best franchise win! &nbsp; 🏆</div>`
+  },
+];
+
+let _rulesIdx = 0;
+
+function showRules() {
+  document.getElementById('ws-splash').style.display = 'none';
+  document.getElementById('ws-rules').style.display  = '';
+  _rulesIdx = 0;
+  renderRulesCard();
+}
+
+function renderRulesCard() {
+  const r   = RULES[_rulesIdx];
+  const card = document.getElementById('rules-card');
+  const dots = document.getElementById('rules-dots');
+  const prev = document.getElementById('rules-prev');
+  const next = document.getElementById('rules-next');
+
+  card.innerHTML = `
+    <div class="rules-step">${_rulesIdx + 1} of ${RULES.length} — ${r.step}</div>
+    <div class="rules-title">${r.title}</div>
+    <div class="rules-body">${r.body}</div>`;
+
+  dots.innerHTML = RULES.map((_, i) =>
+    `<div class="rules-dot${i === _rulesIdx ? ' active' : ''}"
+       onclick="rulesGoTo(${i})"></div>`
+  ).join('');
+
+  prev.disabled = _rulesIdx === 0;
+
+  if (_rulesIdx === RULES.length - 1) {
+    next.textContent = '🏏 Enter Auction Room';
+    next.classList.add('finish');
+  } else {
+    next.textContent = 'Next →';
+    next.classList.remove('finish');
+  }
+}
+
+function rulesNav(dir) {
+  if (dir > 0 && _rulesIdx === RULES.length - 1) {
+    window.location.href = 'auction.html';
+    return;
+  }
+  _rulesIdx = Math.max(0, Math.min(RULES.length - 1, _rulesIdx + dir));
+  renderRulesCard();
+}
+
+function rulesGoTo(idx) {
+  _rulesIdx = idx;
+  renderRulesCard();
+}
+
+// Keyboard nav in rules
+document.addEventListener('keydown', e => {
+  if (document.getElementById('ws-rules')?.style.display === 'none') return;
+  if (document.getElementById('ws-rules')?.style.display === '') {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); rulesNav(1); }
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); rulesNav(-1); }
+  }
+});
 
 document.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 </script>

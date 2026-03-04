@@ -269,25 +269,40 @@ select.form-input{cursor:pointer;}
 /* Sidebar: don't use overflow:hidden — it breaks sticky headers inside */
 .squad-sidebar{min-width:0;}
 .squad-sidebar .card{min-width:0;}
-/* Squad table: fixed height, scrollable, sticky headers work */
 .squad-sidebar .squad-table-wrap{max-height:340px;overflow-x:auto;overflow-y:auto;}
-/* All-teams table: fixed height scroll */
 .squad-sidebar #all-teams-card .table-wrap{max-height:300px;overflow-x:auto;overflow-y:auto;}
-/* Compact columns so no horizontal scroll needed in 320px sidebar */
-.squad-sidebar .data-table{width:100%;table-layout:fixed;}
-.squad-sidebar .data-table th,
-.squad-sidebar .data-table td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:7px 8px;font-size:12px;}
-/* Column widths for My Squad table: #, Player+Tags, Role, IPL, Paid */
-.squad-table col.col-num {width:24px;}
-.squad-table col.col-player{width:auto;}
-.squad-table col.col-role {width:32px;}
-.squad-table col.col-ipl  {width:36px;}
-.squad-table col.col-paid {width:52px;}
-/* Column widths for All Teams table: Team, Purse, Squad, OS */
+
+/* ── Squad & All-Teams sidebar tables: fixed layout so columns never collapse ── */
+.squad-table,.all-teams-table-inner{
+  width:100%;
+  table-layout:fixed;     /* MUST be fixed for col widths to be respected */
+  border-collapse:collapse;
+}
+.squad-table th,
+.squad-table td,
+.all-teams-table-inner th,
+.all-teams-table-inner td{
+  padding:7px 8px;
+  font-size:13px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  vertical-align:middle;
+}
+/* ── My Squad column widths (total ~320px sidebar) ── */
+/* #(22) | Player(auto) | Role(46) | IPL(42) | Paid(68) */
+.squad-table col.col-num   {width:22px;}
+.squad-table col.col-player{width:auto;}   /* takes remaining space */
+.squad-table col.col-role  {width:46px;}
+.squad-table col.col-ipl   {width:42px;}
+.squad-table col.col-paid  {width:68px;}
+
+/* ── All Teams column widths ── */
+/* Team(auto) | Purse(74) | Sq(44) | OS(34) */
 .all-teams-table-inner col.col-team {width:auto;}
-.all-teams-table-inner col.col-purse{width:52px;}
-.all-teams-table-inner col.col-sq   {width:40px;}
-.all-teams-table-inner col.col-os   {width:32px;}
+.all-teams-table-inner col.col-purse{width:74px;}
+.all-teams-table-inner col.col-sq   {width:44px;}
+.all-teams-table-inner col.col-os   {width:34px;}
 .player-card-inner{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;}
 .player-info{display:flex;gap:14px;align-items:flex-start;flex:1;min-width:0;}
 .player-info-text{flex:1;min-width:0;}
@@ -363,17 +378,17 @@ select.form-input{cursor:pointer;}
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 3px 10px;
 }
-.adv-card-meta-badge strong { color: var(--text2); font-weight: 600; }
+.adv-card-meta-badge strong { color: var(--text2); font-weight: 700; font-size: 13px; }
 .adv-card-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  grid-template-columns: repeat(4, 1fr);  /* exactly 4 stat chips */
   gap: 8px;
   margin-top: 10px;
 }
@@ -389,7 +404,7 @@ select.form-input{cursor:pointer;}
 .adv-stat:hover { border-color: var(--border2); transform: translateY(-2px); }
 .adv-stat-val {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 800;
   line-height: 1;
   color: var(--gold);
@@ -397,7 +412,7 @@ select.form-input{cursor:pointer;}
 }
 .adv-stat-val.good { color: var(--green); }
 .adv-stat-val.warn { color: #f6ad55; }
-.adv-stat-lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.adv-stat-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; margin-top: 3px; line-height: 1.3; }
 
 /* Bid area */
 .bid-area{background:rgba(240,180,41,0.03);border:1px solid var(--border);border-radius:var(--radius);padding:16px;min-width:210px;flex-shrink:0;flex:1;transition:border-color var(--t);}
@@ -405,9 +420,9 @@ select.form-input{cursor:pointer;}
 .bid-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
 .bid-stat{background:rgba(0,0,0,0.35);border-radius:8px;padding:10px 12px;transition:background var(--t),transform var(--t);}
 .bid-stat:hover{background:rgba(0,0,0,0.5);transform:translateY(-1px);}
-.bid-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:2px;}
-.bid-stat-value{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--gold);line-height:1.2;}
-.bid-stat-sub{font-size:11px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.bid-stat-label{font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:3px;font-weight:600;}
+.bid-stat-value{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:var(--gold);line-height:1.2;}
+.bid-stat-sub{font-size:12px;color:var(--text2);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
 .bid-stat-value.second{color:var(--muted);font-size:17px;}
 .timer-wrap{text-align:center;margin-bottom:12px;padding:10px 8px;background:rgba(0,0,0,0.3);border-radius:8px;transition:background var(--t);}
 .timer-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:2px;}
@@ -615,6 +630,25 @@ select.form-input{cursor:pointer;}
 /* Admin tables: bounded height for sticky headers to work */
 .admin-full .table-wrap{max-height:480px;}
 #teams-table-wrap{max-height:320px;}
+.admin-teams-table{
+  width:100%;
+  table-layout:fixed;   /* match auction page all-teams style */
+  border-collapse:collapse;
+}
+/* Admin teams column widths: Team(auto) | Purse(88) | Squad(58) | OS(46) */
+.admin-teams-table col.col-team {width:auto;}
+.admin-teams-table col.col-purse{width:88px;}
+.admin-teams-table col.col-sq   {width:58px;}
+.admin-teams-table col.col-os   {width:46px;}
+.admin-teams-table th{
+  cursor:pointer;user-select:none;white-space:nowrap;
+  font-size:12px;padding:10px 12px;
+}
+.admin-teams-table th:hover{color:var(--gold);}
+.admin-teams-table td{
+  padding:10px 12px;font-size:14px;vertical-align:middle;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .admin-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);align-items:center;}
 .live-row{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:stretch;margin-bottom:16px;}
 .timer-block{background:rgba(0,0,0,0.3);border-radius:8px;padding:10px 16px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:80px;}
@@ -696,9 +730,16 @@ select.form-input{cursor:pointer;}
   .squad-sidebar .squad-table-wrap{max-height:260px!important;}
   .squad-sidebar #all-teams-card .table-wrap{max-height:260px!important;}
   /* Undo fixed column widths — full width is fine when stacked */
-  .squad-sidebar .data-table{table-layout:auto;}
-  .squad-sidebar .data-table th,
-  .squad-sidebar .data-table td{font-size:13px;padding:8px 10px;}
+  /* At 900px+ sidebar stacks, tables are wider — relax padding slightly */
+  .squad-table th, .squad-table td,
+  .all-teams-table-inner th, .all-teams-table-inner td{font-size:13px;padding:7px 9px;}
+  /* Slightly wider col widths when sidebar is full width */
+  .squad-table col.col-role {width:52px;}
+  .squad-table col.col-ipl  {width:50px;}
+  .squad-table col.col-paid {width:76px;}
+  .all-teams-table-inner col.col-purse{width:84px;}
+  .all-teams-table-inner col.col-sq   {width:50px;}
+  .all-teams-table-inner col.col-os   {width:38px;}
 }
 @media (max-width: 860px) {
   .container{padding:0 12px 28px;}
@@ -786,3 +827,137 @@ select.form-input{cursor:pointer;}
 /* Autopilot delay input */
 .delay-wrap{display:flex;align-items:center;gap:6px;}
 .delay-wrap input[type=number]{width:60px;text-align:center;}
+/* ══════════════════════════════════════════════════════════════
+   v28 — NEW FEATURES
+══════════════════════════════════════════════════════════════ */
+
+/* ── 1. CONNECTION RECOVERY BANNER ──────────────────────────── */
+.conn-banner {
+  position: fixed; top: var(--navbar-h); left: 0; right: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 9px 20px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.7px;
+  transform: translateY(0); opacity: 1;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.conn-banner.hidden { transform: translateY(-110%); opacity: 0; pointer-events: none; }
+.conn-banner.reconnecting {
+  background: rgba(217,119,6,0.97); color: #fff;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.conn-banner.error {
+  background: rgba(185,28,28,0.97); color: #fff;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.conn-banner-spin {
+  width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff; border-radius: 50%;
+  animation: spin 0.8s linear infinite; flex-shrink: 0;
+}
+.conn-banner-retry {
+  margin-left: 6px; padding: 3px 12px;
+  border: 1px solid rgba(255,255,255,0.5); border-radius: 4px;
+  background: transparent; color: #fff; cursor: pointer;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.5px; transition: background var(--t);
+}
+.conn-banner-retry:hover { background: rgba(255,255,255,0.18); }
+
+/* ── 2. AUTOPILOT SELL WARNING ───────────────────────────────── */
+.autosell-warning {
+  display: none; align-items: center; gap: 10px;
+  background: rgba(229,62,62,0.1); border: 2px solid rgba(229,62,62,0.55);
+  border-radius: var(--radius); padding: 10px 16px; margin-bottom: 12px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 700;
+  animation: pulse-gold 1s infinite;
+}
+.autosell-warning.visible { display: flex; animation: none; }
+.autosell-cd {
+  font-size: 30px; font-weight: 800; color: var(--red);
+  min-width: 34px; text-align: center; animation: blink 0.6s infinite;
+}
+.autosell-cancel {
+  margin-left: auto; padding: 4px 12px;
+  border: 1px solid rgba(229,62,62,0.5); border-radius: 4px;
+  background: transparent; color: #fc8181; cursor: pointer;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 12px; font-weight: 700;
+  transition: all var(--t);
+}
+.autosell-cancel:hover { background: rgba(229,62,62,0.15); color: #fff; }
+
+/* ── 3. BID LATENCY INDICATOR ────────────────────────────────── */
+.bid-latency {
+  font-size: 11px; color: var(--muted); text-align: right;
+  margin-top: 3px; font-family: 'Barlow Condensed', sans-serif;
+  min-height: 15px; transition: color 0.3s;
+}
+.bid-latency.fast    { color: var(--green); }
+.bid-latency.slow    { color: #f6ad55; }
+.bid-latency.veryslow{ color: var(--red); }
+.btn-gold.pending { background: rgba(240,180,41,0.25); color: var(--gold); animation: blink 0.7s infinite; }
+
+/* ── 4. UNSOLD QUEUE PANEL ───────────────────────────────────── */
+.unsold-queue-panel {
+  background: rgba(229,62,62,0.04); border: 1px solid rgba(229,62,62,0.25);
+  border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px;
+}
+.unsold-queue-title {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.8px; color: #fc8181;
+  margin-bottom: 8px; display: flex; align-items: center; gap: 7px;
+}
+.uq-count {
+  font-size: 11px; font-weight: 600; color: var(--muted);
+  text-transform: none; letter-spacing: 0;
+}
+.unsold-queue-list { display: flex; flex-direction: column; gap: 5px; max-height: 220px; overflow-y: auto; }
+.uq-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; background: rgba(0,0,0,0.2);
+  border: 1px solid var(--border); border-radius: 6px;
+  transition: border-color var(--t), background var(--t);
+}
+.uq-item:hover { border-color: rgba(229,62,62,0.4); }
+.uq-item img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--border); flex-shrink: 0; }
+.uq-name { flex: 1; font-weight: 700; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uq-meta { font-size: 11px; color: var(--muted); white-space: nowrap; margin-right: 6px; }
+.uq-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+/* ── 5. QUICK-LAUNCH SEARCH ──────────────────────────────────── */
+.quick-launch-wrap { position: relative; margin-bottom: 12px; }
+.quick-launch-wrap .ql-icon {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  font-size: 15px; pointer-events: none; z-index: 1;
+}
+.quick-launch-input {
+  width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 9px 14px 9px 34px;
+  color: var(--text); font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px; font-weight: 600; outline: none;
+  transition: border-color var(--t), box-shadow var(--t);
+}
+.quick-launch-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-glow); }
+.quick-launch-input::placeholder { color: var(--muted); font-weight: 400; }
+.ql-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--bg-card); border: 1px solid var(--border2);
+  border-radius: var(--radius); max-height: 280px; overflow-y: auto;
+  z-index: 200; box-shadow: var(--shadow-lg); display: none;
+}
+.ql-dropdown.open { display: block; animation: fade-in-down 0.15s ease both; }
+.ql-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 12px; cursor: pointer; transition: background var(--t);
+}
+.ql-item:hover, .ql-item.active { background: rgba(240,180,41,0.08); }
+.ql-item img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: var(--border); flex-shrink: 0; }
+.ql-item-name { font-weight: 700; font-size: 14px; flex: 1; }
+.ql-item-meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.ql-unsold-badge {
+  font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  background: rgba(229,62,62,0.15); color: #fc8181;
+  border: 1px solid rgba(229,62,62,0.3);
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+}
+.ql-empty { padding: 12px; text-align: center; color: var(--muted); font-size: 13px; }

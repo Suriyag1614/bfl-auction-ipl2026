@@ -22,6 +22,10 @@ let _squadLoading    = false;
 let _teamsCache      = [];
 let _rtmAlerted      = false;
 let _lastSquadData   = [];
+let _connState       = 'connected';
+let _reconnectTimer  = null;
+let _reconnectCount  = 0;
+let _bidTs           = 0;
 
 const SIL = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23111520' rx='40'/%3E%3Ccircle cx='40' cy='28' r='14' fill='%2364748b'/%3E%3Cellipse cx='40' cy='70' rx='22' ry='18' fill='%2364748b'/%3E%3C/svg%3E";
 window._SIL = SIL;
@@ -58,7 +62,7 @@ function getIPLColors(code) {
 function getIPLLogoUrl(code) {
   if (!code) return null;
   const c = (code||'').trim().toUpperCase();
-  return `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png`;
+  return `https://documents.iplt20.com/ipl/${c}/logos/LogoOutline/${c}outline.png`;
 }
 function applyIPLCSSVars(el, code) {
   const colors = getIPLColors(code);
@@ -340,7 +344,8 @@ function renderLivePlayer(state, paused) {
           <button class="btn btn-ghost" id="undo-bid-btn" onclick="undoBid()" style="display:none;">↩ Undo</button>
         </div>
         <div id="bid-error" class="error-msg"></div>
-        <div class="info-msg">Bids must be multiples of ₹0.25 Cr · Press Enter to bid</div>
+        <div class="bid-latency" id="bid-latency"></div>
+        <div class="info-msg" style="font-size:11px;">Bids must be ×₹0.25 Cr · Enter to bid · <kbd style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:9px;font-family:monospace;">B</kbd> to focus</div>
       </div>
       <div id="bid-history-wrap"></div>
       <div id="mini-history-wrap-live"></div>`;
@@ -392,21 +397,20 @@ function renderLivePlayer(state, paused) {
   if (p.is_rtm_eligible && !p.is_retained) flags += ' <span class="tag tag-rtm">RTM Eligible</span>';
   const flagsEl = el('player-flags'); if (flagsEl) flagsEl.innerHTML = flags;
 
-  // Stats grid
+  // Stats grid — 4 meaningful stats, no duplicates with meta row above
   const statsGrid = el('adv-stats-grid');
   if (statsGrid) {
     const avg = p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—';
     const avgCls = p.bfl_avg > 100 ? 'good' : p.bfl_avg > 50 ? '' : p.bfl_avg ? 'warn' : '';
+    const roleShort = { 'Batter':'BAT', 'Bowler':'BOWL', 'All-Rounder':'AR', 'Wicket-Keeper':'WK' }[p.role] || p.role?.substring(0,4) || '—';
     statsGrid.innerHTML = [
-      { val: avg,                             cls: avgCls, lbl: 'BFL Avg' },
-      { val: p.role?.substring(0,4)||'—',     cls: '',     lbl: 'Role' },
-      { val: p.ipl_team || '—',               cls: '',     lbl: 'IPL Team', color: colors?.primary },
-      { val: fmt(p.base_price),               cls: '',     lbl: 'Base Price' },
-      { val: p.is_overseas ? 'OS' : 'IND',    cls: p.is_overseas ? 'warn' : 'good', lbl: 'Origin' },
-      { val: p.is_uncapped ? 'UC' : 'CAP',    cls: p.is_uncapped ? 'good' : '',     lbl: 'Status' },
-    ].map((s,i) => `<div class="adv-stat" style="animation-delay:${i*0.04}s">
-      <div class="adv-stat-val ${s.cls}"${s.color?` style="color:${s.color}"`:''}>${s.val}</div>
-      <div class="adv-stat-lbl">${s.lbl}</div>
+      { val: avg,                              cls: avgCls,                           icon:'📊', lbl: 'BFL Avg' },
+      { val: roleShort,                        cls: '',                               icon:'🎭', lbl: 'Role' },
+      { val: p.is_overseas ? '🌍 OS' : '🇮🇳 IND', cls: p.is_overseas ? 'warn' : 'good', icon:'', lbl: 'Origin' },
+      { val: p.is_uncapped ? 'UNCAP' : 'CAP',  cls: p.is_uncapped ? 'good' : '',     icon:'🎖', lbl: 'Status' },
+    ].map((s,i) => `<div class="adv-stat" style="animation-delay:${i*0.05}s">
+      <div class="adv-stat-val ${s.cls}"${colors&&s.lbl==='IPL'?` style="color:${colors.primary}"`:''}>${s.val}</div>
+      <div class="adv-stat-lbl">${s.icon} ${s.lbl}</div>
     </div>`).join('');
   }
 
@@ -744,16 +748,24 @@ function renderAllTeams() {
   cont.innerHTML = sorted.map(t => {
     const rtmRem = Math.max(0, (t.rtm_cards_total||0) - (t.rtm_cards_used||0));
     const isMe   = t.id === myTeam?.id;
+    const purse  = Number(t.purse_remaining);
+    const purseColor = purse <= 5 ? 'var(--red)' : purse <= 10 ? '#f6ad55' : 'var(--gold)';
     return `<tr class="${isMe?'row-mine':''}">
-      <td style="white-space:nowrap;">
-        <span style="font-weight:${isMe?'800':'600'};font-size:13px;">${t.team_name}</span>
-        ${t.is_advantage_holder?' <span class="tag tag-advantage" style="font-size:9px;padding:1px 4px;">ADV</span>':''}
-        ${rtmRem>0?` <span class="tag tag-rtm" style="font-size:9px;padding:1px 4px;">RTM×${rtmRem}</span>`:''}
+      <td>
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:${isMe?'800':'700'};font-size:14px;">${t.team_name}</span>
+        ${t.is_advantage_holder?' <span class="tag tag-advantage" style="font-size:9px;padding:1px 4px;">⭐</span>':''}
+        ${rtmRem>0?` <span class="tag tag-rtm" style="font-size:9px;padding:1px 4px;">🔄×${rtmRem}</span>`:''}
         ${isMe?' <span style="font-size:10px;color:var(--gold);font-style:italic;">(you)</span>':''}
       </td>
-      <td style="font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--gold);white-space:nowrap;">${fmt(t.purse_remaining)}</td>
-      <td style="white-space:nowrap;">${t.playerCount} / 12</td>
-      <td style="white-space:nowrap;">${t.osCount} / 4</td>
+      <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:${purseColor};white-space:nowrap;">
+        ₹${purse.toFixed(1)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>
+      </td>
+      <td style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;white-space:nowrap;">
+        ${t.playerCount}<span style="color:var(--muted);font-size:11px;font-weight:400;">/12</span>
+      </td>
+      <td style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;white-space:nowrap;">
+        ${t.osCount}<span style="color:var(--muted);font-size:11px;font-weight:400;">/4</span>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -817,9 +829,18 @@ async function placeBid() {
   const amount = Math.round(raw / 0.25) * 0.25;
   if (Math.abs(amount - raw) > 0.001) { errEl.textContent = 'Bid must be ×₹0.25 Cr'; input.value = amount.toFixed(2); return; }
   if (amount > myTeam.purse_remaining) { errEl.textContent = 'Insufficient purse (' + fmt(myTeam.purse_remaining) + ')'; return; }
-  bidBtn.disabled = true; bidBtn.textContent = '…';
+  bidBtn.disabled = true; bidBtn.classList.add('pending'); bidBtn.textContent = '⏳';
+  _bidTs = Date.now();
   const { data, error } = await sb.rpc('place_bid', { bid_amount: amount });
-  bidBtn.disabled = false; bidBtn.textContent = 'Bid';
+  const ms = Date.now() - _bidTs;
+  bidBtn.disabled = false; bidBtn.classList.remove('pending'); bidBtn.textContent = 'Bid';
+  const latEl = el('bid-latency');
+  if (latEl) {
+    const cls = ms < 400 ? 'fast' : ms < 1200 ? 'slow' : 'veryslow';
+    latEl.className = 'bid-latency ' + cls;
+    latEl.textContent = '⚡ Server response: ' + ms + 'ms';
+    setTimeout(() => { if (latEl) { latEl.textContent = ''; latEl.className = 'bid-latency'; } }, 5000);
+  }
   if (error)          { errEl.textContent = error.message;    return; }
   if (!data?.success) { errEl.textContent = data?.error||'Error'; return; }
   bidBtn.style.display = 'none'; input.disabled = true;
@@ -941,18 +962,21 @@ async function loadSquad() {
     });
     tbody.innerHTML = list.map((tp,i) => {
       const p = tp.player || {};
+      const roleShort = { 'Batter':'BAT', 'Bowler':'BOWL', 'All-Rounder':'AR', 'Wicket-Keeper':'WK' }[p.role] || p.role?.substring(0,4) || '—';
       let tags = '';
       if (tp.is_retained) tags += '<span class="tag tag-retained">RTN</span> ';
       if (tp.is_rtm)      tags += '<span class="tag tag-rtm">RTM</span> ';
       if (p.is_overseas)  tags += '<span class="tag tag-overseas">OS</span> ';
       if (p.is_uncapped)  tags += '<span class="tag tag-uncapped">UC</span>';
       return `<tr class="${tp.is_retained?'row-retained':''}">
-        <td style="font-size:12px;color:var(--muted);width:24px;">${i+1}</td>
-        <td><div style="font-weight:700;font-size:13px;">${p.name||'?'}</div>
-          ${tags?`<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:2px;">${tags}</div>`:''}</td>
-        <td style="font-size:12px;color:var(--text2);">${p.role||'—'}</td>
-        <td style="font-size:11px;color:var(--muted);">${p.ipl_team||'—'}</td>
-        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--gold);white-space:nowrap;font-size:13px;">${fmt(tp.sold_price)}</td>
+        <td style="font-size:12px;color:var(--muted);text-align:center;">${i+1}</td>
+        <td>
+          <div style="font-weight:700;font-size:13px;line-height:1.2;">${p.name||'?'}</div>
+          ${tags?`<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px;">${tags}</div>`:''}
+        </td>
+        <td style="font-size:13px;color:var(--text2);font-weight:600;">${roleShort}</td>
+        <td style="font-size:12px;color:var(--muted);">${p.ipl_team||'—'}</td>
+        <td style="font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--gold);font-size:14px;white-space:nowrap;">₹${Number(tp.sold_price).toFixed(2)}</td>
       </tr>`;
     }).join('');
     renderSquadComp(list.map(r => ({...r.player, is_retained: r.is_retained||false})));
@@ -1124,6 +1148,35 @@ async function exportSquadPDF() {
 }
 
 // ── Realtime ──────────────────────────────────────────────────
+// ── Connection state ─────────────────────────────────────────
+function setConnState(s) {
+  if (_connState === s) return;
+  const prev = _connState;
+  _connState = s;
+  const banner = el('conn-banner');
+  const msg    = el('conn-banner-msg');
+  if (!banner) return;
+  if (s === 'connected') {
+    banner.className = 'conn-banner hidden';
+    if (prev !== 'connected') toast('✓ Reconnected to live server', 'success');
+    _reconnectCount = 0;
+  } else if (s === 'reconnecting') {
+    banner.className = 'conn-banner reconnecting';
+    if (msg) msg.textContent = 'Reconnecting… bids will still go through via polling';
+  } else {
+    banner.className = 'conn-banner error';
+    if (msg) msg.textContent = 'Connection lost — retrying automatically';
+  }
+}
+function manualReconnect() {
+  clearTimeout(_reconnectTimer);
+  _reconnectCount = 0;
+  setConnState('reconnecting');
+  subscribeRealtime();
+  _lastStateHash = '';
+  fetchState();
+}
+
 function subscribeRealtime() {
   if (realtimeChannel) sb.removeChannel(realtimeChannel);
   realtimeChannel = sb.channel('team-v25-' + myTeam.id)
@@ -1144,8 +1197,19 @@ function subscribeRealtime() {
     })
     .on('postgres_changes', { event:'INSERT', schema:'public', table:'unsold_log' }, () => { loadStats(); })
     .on('system', {}, p => {
-      if (['CHANNEL_ERROR','TIMED_OUT'].includes(p.status)) setTimeout(subscribeRealtime, 8000);
-    }).subscribe();
+      if (p.status === 'SUBSCRIBED') {
+        setConnState('connected');
+      } else if (['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(p.status)) {
+        _reconnectCount++;
+        setConnState(_reconnectCount >= 3 ? 'error' : 'reconnecting');
+        const delay = Math.min(3000 * Math.pow(2, Math.min(_reconnectCount - 1, 4)), 30000);
+        clearTimeout(_reconnectTimer);
+        _reconnectTimer = setTimeout(() => {
+          if (realtimeChannel) { try { sb.removeChannel(realtimeChannel); } catch(_) {} realtimeChannel = null; }
+          subscribeRealtime();
+        }, delay);
+      }
+    }).subscribe(s => { if (s === 'SUBSCRIBED') setConnState('connected'); });
 }
 
 document.addEventListener('keydown', e => {

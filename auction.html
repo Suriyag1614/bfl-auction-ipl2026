@@ -8,11 +8,17 @@
   <title>BFL Auction — Live</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=26">
+  <link rel="stylesheet" href="css/styles.css?v=28">
 </head>
 <body>
 
 <div class="toast-container" id="toast-container"></div>
+<!-- Connection recovery banner -->
+<div class="conn-banner hidden" id="conn-banner">
+  <div class="conn-banner-spin"></div>
+  <span id="conn-banner-msg">Reconnecting…</span>
+  <button class="conn-banner-retry" onclick="manualReconnect()">↺ Retry Now</button>
+</div>
 
 <!-- Navbar -->
 <nav class="navbar" id="main-nav">
@@ -134,7 +140,13 @@
             <colgroup>
               <col class="col-num"><col class="col-player"><col class="col-role"><col class="col-ipl"><col class="col-paid">
             </colgroup>
-            <thead><tr><th style="width:24px;">#</th><th>Player</th><th>Role</th><th>IPL</th><th>Paid</th></tr></thead>
+            <thead><tr>
+              <th style="text-align:center;">#</th>
+              <th>🏏 Player</th>
+              <th>🎭 Role</th>
+              <th>🏟 IPL</th>
+              <th>💰 Paid</th>
+            </tr></thead>
             <tbody id="squad-tbody">
               <tr><td colspan="5" class="empty-cell">No players yet</td></tr>
             </tbody>
@@ -145,18 +157,18 @@
 
       <!-- All Teams -->
       <div class="card" id="all-teams-card">
-        <div class="card-title" style="margin-bottom:10px;">All Teams</div>
+        <div class="card-title" style="margin-bottom:10px;">🏟 All Teams</div>
         <div class="table-wrap" style="max-height:300px;overflow-x:auto;overflow-y:auto;">
-          <table class="data-table all-teams-table-inner" style="width:100%;font-size:12px;">
+          <table class="data-table all-teams-table-inner" style="width:100%;">
             <colgroup>
               <col class="col-team"><col class="col-purse"><col class="col-sq"><col class="col-os">
             </colgroup>
             <thead>
               <tr>
-                <th onclick="sortAllTeams('team_name')" style="cursor:pointer;">Team</th>
-                <th onclick="sortAllTeams('purse_remaining')" style="cursor:pointer;">Purse ↓</th>
-                <th onclick="sortAllTeams('playerCount')" style="cursor:pointer;">Squad</th>
-                <th onclick="sortAllTeams('osCount')" style="cursor:pointer;">OS</th>
+                <th onclick="sortAllTeams('team_name')">🏟 Team</th>
+                <th onclick="sortAllTeams('purse_remaining')">💰 Purse</th>
+                <th onclick="sortAllTeams('playerCount')">👥 Sq</th>
+                <th onclick="sortAllTeams('osCount')">🌍 OS</th>
               </tr>
             </thead>
             <tbody id="all-teams-table">
@@ -171,10 +183,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=26"></script>
+<script src="js/localstorage-shim.js?v=28"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=26"></script>
-<script src="js/supabaseClient.js?v=26"></script>
-<script src="js/auction.js?v=26"></script>
+<script src="js/modal.js?v=28"></script>
+<script src="js/supabaseClient.js?v=28"></script>
+<script src="js/auction.js?v=28"></script>
 </body>
 </html>

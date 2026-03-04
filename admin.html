@@ -9,7 +9,7 @@
   <title>BFL Auction — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=26">
+  <link rel="stylesheet" href="css/styles.css?v=28">
 </head>
 <body>
 
@@ -83,27 +83,52 @@
 
         <!-- Live block (hidden until player active) -->
         <div id="live-block" style="display:none;">
-          <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px;">
-            <img id="cp-img" class="player-avatar-lg" src="" alt="" style="display:none;" onerror="this.onerror=null;this.style.display='none'">
+          <!-- IPL colour band -->
+          <div id="admin-ipl-band" style="height:5px;border-radius:3px;background:var(--gold-dim);margin-bottom:14px;transition:background 0.4s;"></div>
+
+          <!-- Player identity row -->
+          <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:14px;">
+            <div style="position:relative;flex-shrink:0;">
+              <img id="cp-img" class="player-avatar-lg" src="" alt="" style="display:none;"
+                onerror="this.onerror=null;this.style.display='none'">
+              <img id="cp-ipl-logo" src="" alt="" style="display:none;position:absolute;bottom:-6px;right:-6px;
+                width:28px;height:28px;object-fit:contain;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.6));"
+                onerror="this.style.display='none'">
+            </div>
             <div style="flex:1;min-width:0;">
-              <div id="cp-name" style="font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;line-height:1;margin-bottom:4px;"></div>
-              <div id="cp-meta" style="font-size:12px;color:var(--muted);margin-bottom:6px;"></div>
-              <div id="cp-flags" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+              <div id="cp-name" style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:800;
+                line-height:1.05;margin-bottom:6px;"></div>
+              <!-- Meta badges -->
+              <div id="cp-meta-badges" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;"></div>
+              <!-- Flags -->
+              <div id="cp-flags" style="display:flex;gap:5px;flex-wrap:wrap;"></div>
             </div>
           </div>
+
+          <!-- Stats mini-grid: 4 fixed cols matching auction page -->
+          <div id="cp-stats-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;"></div>
+
+          <!-- Bid row: Highest | 2nd | Timer -->
+          <!-- Autopilot sell warning — shown when timer hits 0 and autopilot is OFF -->
+          <div class="autosell-warning" id="autosell-warning">
+            <span style="font-size:20px;">⚠️</span>
+            <span style="flex:1;">Auto-selling in&nbsp;<span id="autosell-cd" class="autosell-cd">12</span>s</span>
+            <button class="autosell-cancel" onclick="cancelAutoSell()">✕ Cancel</button>
+          </div>
+
           <div class="live-row">
             <div class="bid-stat">
-              <div class="bid-stat-label">Highest Bid</div>
+              <div class="bid-stat-label">🏆 Highest Bid</div>
               <div class="bid-stat-value" id="current-bid">—</div>
-              <div class="bid-stat-sub"  id="leading-team">—</div>
+              <div class="bid-stat-sub"   id="leading-team">—</div>
             </div>
             <div class="bid-stat">
-              <div class="bid-stat-label">2nd Highest</div>
+              <div class="bid-stat-label">🥈 2nd Highest</div>
               <div class="bid-stat-value second" id="second-bid">—</div>
               <div class="bid-stat-sub"           id="second-team">—</div>
             </div>
             <div class="timer-block">
-              <div class="timer-label">Timer</div>
+              <div class="timer-label">⏱ Timer</div>
               <span class="timer" id="timer">—</span>
             </div>
           </div>
@@ -136,15 +161,25 @@
     <div>
       <div class="card">
         <div class="card-title">Teams</div>
+        <!-- Unsold queue — auto-populated when players are marked unsold -->
+        <div id="unsold-queue-container"></div>
+
         <div id="teams-skeleton">
           <div class="skel skel-row"></div>
           <div class="skel skel-row"></div>
           <div class="skel skel-row" style="width:80%;"></div>
         </div>
-        <div class="table-wrap" id="teams-table-wrap" style="max-height:320px;display:none;">
-          <table class="data-table" style="width:100%;">
-            <colgroup><col style="width:auto"><col style="width:68px"><col style="width:54px"><col style="width:44px"></colgroup>
-            <thead><tr><th>Team</th><th>Purse</th><th>Squad</th><th class="hide-sm">OS</th></tr></thead>
+        <div class="table-wrap admin-teams-wrap" id="teams-table-wrap" style="max-height:320px;display:none;">
+          <table class="data-table admin-teams-table" style="width:100%;">
+            <colgroup>
+              <col class="col-team"><col class="col-purse"><col class="col-sq"><col class="col-os">
+            </colgroup>
+            <thead><tr>
+              <th onclick="adminSortTeams('team_name')" id="ath-name">🏟 Team</th>
+              <th onclick="adminSortTeams('purse_remaining')" id="ath-purse">💰 Purse</th>
+              <th onclick="adminSortTeams('playerCount')" id="ath-squad">👥 Squad</th>
+              <th onclick="adminSortTeams('osCount')" id="ath-os">🌍 OS</th>
+            </tr></thead>
             <tbody id="teams-tbody"></tbody>
           </table>
         </div>
@@ -183,6 +218,17 @@
 
           <!-- PLAYERS -->
           <div class="tab-panel active" id="tab-players">
+            <!-- ⚡ Quick launch: type a name and hit Enter to start auction immediately -->
+            <div class="quick-launch-wrap">
+              <span class="ql-icon">⚡</span>
+              <input class="quick-launch-input" type="text" id="ql-input"
+                placeholder="Quick-launch: type player name → ↵ Enter to start auction…"
+                autocomplete="off"
+                oninput="quickLaunchSearch(this.value)"
+                onkeydown="qlKey(event)">
+              <div class="ql-dropdown" id="ql-dropdown"></div>
+            </div>
+
             <div class="filters-bar">
               <input class="form-input" type="text" id="player-search" placeholder="🔍 Name / role / team…" style="width:200px;" oninput="renderPlayerList()">
               <select class="form-input" id="filter-set"    style="width:120px;" onchange="renderPlayerList()"><option value="">All Sets</option></select>
@@ -332,10 +378,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=26"></script>
+<script src="js/localstorage-shim.js?v=28"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=26"></script>
-<script src="js/supabaseClient.js?v=26"></script>
-<script src="js/admin.js?v=26"></script>
+<script src="js/modal.js?v=28"></script>
+<script src="js/supabaseClient.js?v=28"></script>
+<script src="js/admin.js?v=28"></script>
 </body>
 </html>
