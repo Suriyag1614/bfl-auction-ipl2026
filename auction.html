@@ -8,7 +8,7 @@
   <title>BFL Auction — Live</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=25">
+  <link rel="stylesheet" href="css/styles.css?v=26">
 </head>
 <body>
 
@@ -153,10 +153,10 @@
             </colgroup>
             <thead>
               <tr>
-                <th>Team</th>
-                <th>Purse</th>
-                <th>Squad</th>
-                <th>OS</th>
+                <th onclick="sortAllTeams('team_name')" style="cursor:pointer;">Team</th>
+                <th onclick="sortAllTeams('purse_remaining')" style="cursor:pointer;">Purse ↓</th>
+                <th onclick="sortAllTeams('playerCount')" style="cursor:pointer;">Squad</th>
+                <th onclick="sortAllTeams('osCount')" style="cursor:pointer;">OS</th>
               </tr>
             </thead>
             <tbody id="all-teams-table">
@@ -171,10 +171,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=25"></script>
+<script src="js/localstorage-shim.js?v=26"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=25"></script>
-<script src="js/supabaseClient.js?v=25"></script>
-<script src="js/auction.js?v=25"></script>
+<script src="js/modal.js?v=26"></script>
+<script src="js/supabaseClient.js?v=26"></script>
+<script src="js/auction.js?v=26"></script>
 </body>
 </html>

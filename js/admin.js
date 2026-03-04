@@ -479,6 +479,31 @@ async function undoSale() {
   await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]); await updateStats();
 }
 
+async function undoSaleByPlayer(playerName, teamName, price) {
+  if (!await confirm2(
+    `Undo sale of **${playerName}** to **${teamName}** (₹${Number(price).toFixed(2)} Cr)?\nPlayer returns to Available and purse is refunded.`,
+    { title:'Undo Sale', icon:'↩' }
+  )) return;
+  clearError();
+  // Find the player id from in-memory list
+  const player = allPlayers.find(p => p.name === playerName);
+  if (!player) return showError('Player not found in list');
+  const { data, error } = await sb.rpc('undo_sale_by_player', { p_player_id: player.id });
+  if (error || !data?.success) {
+    // Graceful fallback: if RPC doesn't exist yet, fall back to undo_last_sale with a warning
+    if (error?.message?.includes('does not exist') || error?.code === 'PGRST202') {
+      const { data: d2, error: e2 } = await sb.rpc('undo_last_sale');
+      if (e2 || !d2?.success) return showError((e2||d2)?.message || 'Undo failed');
+      toast('↩ Sale undone (used global undo — add undo_sale_by_player RPC for precision)', 'warn');
+    } else {
+      return showError(error?.message || data?.error || 'Undo failed');
+    }
+  } else {
+    toast(`↩ Sale of ${playerName} undone`, 'warn');
+  }
+  await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]); await updateStats();
+}
+
 async function undoUnsold(playerId) {
   if (!await confirm2('Remove Unsold mark? Returns to **Available**.', { title:'Undo Unsold', icon:'↩' })) return;
   clearError();
@@ -511,9 +536,8 @@ async function toggleAutopilot() {
 async function setAutopilotDelay(seconds) {
   const s = parseInt(seconds);
   if (isNaN(s)) return;
-  const { data, error } = await sb.rpc('set_autopilot_delay', { p_seconds: s });
+  const { error } = await sb.rpc('set_autopilot_delay', { p_seconds: s });
   if (error) return showError(error.message);
-  if (!data?.success) return showError(data?.error || 'Error');
   toast('Auto-sell delay: ' + s + 's', 'info');
 }
 
@@ -654,22 +678,24 @@ function renderRTMAdminBlock(state) {
       </div>`;
     if (deadlineMs) startAdminRTMCountdown(deadlineMs);
   } else {
+    stopAdminRTMCountdown();
     block.innerHTML = '';
   }
 }
 
 let adminRTMInterval = null;
 function startAdminRTMCountdown(endMs) {
-  clearInterval(adminRTMInterval);
+  clearInterval(adminRTMInterval); adminRTMInterval = null;
   adminRTMInterval = setInterval(() => {
     const t = el('rtm-admin-countdown');
-    if (!t) { clearInterval(adminRTMInterval); return; }
+    if (!t) { clearInterval(adminRTMInterval); adminRTMInterval = null; return; }
     const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
     t.textContent = rem + 's';
-    t.style.color = rem <= 10 ? 'var(--danger)' : 'var(--gold)';
-    if (rem <= 0) clearInterval(adminRTMInterval);
+    t.style.color = rem <= 10 ? 'var(--red)' : 'var(--gold)';
+    if (rem <= 0) { clearInterval(adminRTMInterval); adminRTMInterval = null; }
   }, 300);
 }
+function stopAdminRTMCountdown() { clearInterval(adminRTMInterval); adminRTMInterval = null; }
 
 // ─── TIMER ────────────────────────────────────────────────────
 function startTimer(endTime) {
@@ -849,7 +875,7 @@ function renderHistory() {
   tbody.innerHTML = list.map(r => {
     const ts = r.sold_at ? new Date(r.sold_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
     const undoBtn = r.status==='sold'
-      ? `<button class="btn btn-sm btn-ghost" onclick="undoSale()" title="Undo last sale">↩</button>`
+      ? `<button class="btn btn-sm btn-ghost" onclick="undoSaleByPlayer('${r.player_name.replace(/'/g,"\\'")}','${(r.sold_to||'').replace(/'/g,"\\'")}',${r.sold_price!=null?r.sold_price:0})" title="Undo this sale">↩</button>`
       : `<button class="btn btn-sm btn-ghost" onclick="undoUnsoldByName('${r.player_name.replace(/'/g,"\\'")}')">↩</button>`;
     const retTag = r.is_retained ? '<span class="tag tag-retained" style="font-size:10px;">RTN</span> ' : '';
     const rtmTag = r.is_rtm     ? '<span class="tag tag-rtm"      style="font-size:10px;">RTM</span> ' : '';
@@ -1159,7 +1185,8 @@ async function renderSquadView() {
 }
 
 function renderSquadTable(team) {
-  const cont     = el('squad-view-content');
+  const cont = el('squad-view-content');
+
   const sqSearch = (el('squad-search')?.value||'').toLowerCase();
   const sqRole   = el('squad-role-filter')?.value||'';
   const sqOsOnly = el('squad-os-filter')?.checked||false;
@@ -1181,43 +1208,53 @@ function renderSquadTable(team) {
     return sqSortDir==='asc'?(va>vb?1:-1):(va<vb?1:-1);
   });
 
-  const spent = squadRows.reduce((s,r)=>s+Number(r.sold_price||0),0);
-  const os    = squadRows.filter(r=>r.is_overseas).length;
-  const uc    = squadRows.filter(r=>r.is_uncapped).length;
-  const rtn   = squadRows.filter(r=>r.is_retained).length;
-  const purse = Number(team?.purse_remaining||0);
-  // IPL rule: 0 retained=3 RTM, 1=2, 2=1, 3=0
+  const spent  = squadRows.reduce((s,r)=>s+Number(r.sold_price||0),0);
+  const os     = squadRows.filter(r=>r.is_overseas).length;
+  const rtn    = squadRows.filter(r=>r.is_retained).length;
+  const purse  = Number(team?.purse_remaining||0);
   const rtmTotal = (team?.rtm_cards_total != null) ? team.rtm_cards_total : 0;
   const rtmRem   = Math.max(0, rtmTotal - (team?.rtm_cards_used||0));
 
-  const statBar = `<div class="stats-row" style="margin-bottom:14px;">
-    <div class="stat-chip"><div class="stat-chip-val">${squadRows.length}/12</div><div class="stat-chip-lbl">Players</div></div>
-    <div class="stat-chip"><div class="stat-chip-val">₹${spent.toFixed(1)}</div><div class="stat-chip-lbl">Spent Cr</div></div>
-    <div class="stat-chip"><div class="stat-chip-val">₹${purse.toFixed(1)}</div><div class="stat-chip-lbl">Remaining</div></div>
-    <div class="stat-chip"><div class="stat-chip-val">${os}/4</div><div class="stat-chip-lbl">Overseas</div></div>
-    <div class="stat-chip"><div class="stat-chip-val">${rtn}</div><div class="stat-chip-lbl">Retained</div></div>
-    <div class="stat-chip"><div class="stat-chip-val">${rtmRem}</div><div class="stat-chip-lbl">RTM Left</div></div>
-  </div>`;
+  // Only rebuild stat bar + filters once — prevents flicker on every filter keystroke
+  if (!el('squad-stat-bar')) {
+    cont.innerHTML = `
+      <div id="squad-stat-bar" class="stats-row" style="margin-bottom:14px;">
+        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-count">${squadRows.length}/12</div><div class="stat-chip-lbl">Players</div></div>
+        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-spent">&#8377;${spent.toFixed(1)}</div><div class="stat-chip-lbl">Spent Cr</div></div>
+        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-purse">&#8377;${purse.toFixed(1)}</div><div class="stat-chip-lbl">Remaining</div></div>
+        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-os">${os}/4</div><div class="stat-chip-lbl">Overseas</div></div>
+        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-rtn">${rtn}</div><div class="stat-chip-lbl">Retained</div></div>
+        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-rtm">${rtmRem}</div><div class="stat-chip-lbl">RTM Left</div></div>
+      </div>
+      <div id="squad-filter-bar" class="filters-bar" style="margin-bottom:10px;">
+        <input class="form-input" type="text" id="squad-search" placeholder="Search..." style="width:160px;" oninput="renderSquadTableOnly()">
+        <select class="form-input" id="squad-role-filter" style="width:140px;" onchange="renderSquadTableOnly()">
+          <option value="">All Roles</option>
+          <option>Batter</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:5px;font-size:13px;color:var(--muted);cursor:pointer;">
+          <input type="checkbox" id="squad-os-filter" onchange="renderSquadTableOnly()"> OS only
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:13px;color:var(--muted);cursor:pointer;">
+          <input type="checkbox" id="squad-uc-filter" onchange="renderSquadTableOnly()"> UC only
+        </label>
+      </div>
+      <div id="squad-table-area"></div>
+      <div id="squad-comp-area"></div>`;
+  } else {
+    // Update stat chips in-place — no DOM rebuild, no flicker
+    const sc = (id,v) => { const e=el(id); if(e) e.textContent=v; };
+    sc('sq-chip-count', squadRows.length+'/12');
+    sc('sq-chip-spent', '\u20B9'+spent.toFixed(1));
+    sc('sq-chip-purse', '\u20B9'+purse.toFixed(1));
+    sc('sq-chip-os',    os+'/4');
+    sc('sq-chip-rtn',   rtn);
+    sc('sq-chip-rtm',   rtmRem);
+  }
 
-  const filtersBar = `<div class="filters-bar" style="margin-bottom:10px;">
-    <input class="form-input" type="text" id="squad-search" placeholder="🔍 Search…"
-      style="width:160px;" oninput="renderSquadTableOnly()" value="${(el('squad-search')?.value||'').replace(/"/g,'&quot;')}">
-    <select class="form-input" id="squad-role-filter" style="width:140px;" onchange="renderSquadTableOnly()">
-      <option value="">All Roles</option>
-      <option${(el('squad-role-filter')?.value||'')==='Batsman'?' selected':''}>Batsman</option>
-      <option${(el('squad-role-filter')?.value||'')==='Bowler'?' selected':''}>Bowler</option>
-      <option${(el('squad-role-filter')?.value||'')==='All-Rounder'?' selected':''}>All-Rounder</option>
-      <option${(el('squad-role-filter')?.value||'')==='Wicket-Keeper'?' selected':''}>Wicket-Keeper</option>
-    </select>
-    <label style="display:flex;align-items:center;gap:5px;font-size:13px;color:var(--muted);cursor:pointer;">
-      <input type="checkbox" id="squad-os-filter" onchange="renderSquadTableOnly()"${sqOsOnly?' checked':''}> OS only
-    </label>
-    <label style="display:flex;align-items:center;gap:5px;font-size:13px;color:var(--muted);cursor:pointer;">
-      <input type="checkbox" id="squad-uc-filter" onchange="renderSquadTableOnly()"${sqUcOnly?' checked':''}> UC only
-    </label>
-  </div>`;
-
-  const tableHTML = !list.length ? '<div class="empty-cell">No players match filter</div>' : `
+  // Re-render only the table body
+  const tableArea = el('squad-table-area'); if (!tableArea) return;
+  tableArea.innerHTML = !list.length ? '<div class="empty-cell">No players match filter</div>' : `
     <div class="table-wrap" style="max-height:360px;overflow:auto;">
       <table class="data-table" style="min-width:520px;">
         <thead><tr>
@@ -1233,28 +1270,25 @@ function renderSquadTable(team) {
           ${list.map((p,i)=>{
             let tags='';
             if(p.is_retained) tags+='<span class="tag tag-retained">RTN</span> ';
-            if(p.is_rtm)      tags+='<span class="tag tag-rtm">RTM</span> ';  // won via RTM exercise
+            if(p.is_rtm)      tags+='<span class="tag tag-rtm">RTM</span> ';
             if(p.is_overseas) tags+='<span class="tag tag-overseas">OS</span> ';
             if(p.is_uncapped) tags+='<span class="tag tag-uncapped">UC</span>';
             return `<tr class="${p.is_retained?'row-retained':''}">
               <td>${i+1}</td>
               <td><strong>${p.name}</strong></td>
               <td>${p.role}</td>
-              <td>${p.ipl_team||'—'}</td>
-              <td>₹${p.base_price}</td>
-              <td style="color:var(--gold);font-family:'Barlow Condensed',sans-serif;font-weight:700;">₹${Number(p.sold_price).toFixed(2)}</td>
-              <td>${tags||'—'}</td>
+              <td>${p.ipl_team||'&#8212;'}</td>
+              <td>&#8377;${p.base_price}</td>
+              <td style="color:var(--gold);font-family:'Barlow Condensed',sans-serif;font-weight:700;">&#8377;${Number(p.sold_price).toFixed(2)}</td>
+              <td>${tags||'&#8212;'}</td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>
     </div>`;
 
-  cont.innerHTML = statBar + filtersBar + tableHTML;
-  // Render composition validator after content is in DOM
-  const compContainer = document.createElement('div');
-  cont.appendChild(compContainer);
-  renderAdminSquadComp(squadRows.map(r => r), team, compContainer);
+  const compArea = el('squad-comp-area');
+  if (compArea) renderAdminSquadComp(squadRows.map(r=>r), team, compArea);
 }
 
 function renderSquadTableOnly() {
@@ -1299,6 +1333,7 @@ function renderAdminSquadComp(players, team, container) {
 
   const allMet = !issues.length;
   const complete = total === 12 && allMet;
+  const meaningful = total >= 8;
 
   const roleDefs = [
     { label:'WK',   val:wk,   min:1 },
@@ -1312,8 +1347,8 @@ function renderAdminSquadComp(players, team, container) {
 
   container.innerHTML = `<div class="squad-comp-bar" style="margin-top:10px;">
     <div class="squad-comp-header">
-      <span class="${complete?'squad-comp-ok':allMet?'squad-comp-ok':'squad-comp-warn'}">
-        ${complete ? '✓ Squad Complete' : allMet ? '✓ Requirements Met' : '⚠ '+issues.length+' issue(s)'}
+      <span class="${complete?'squad-comp-ok':(allMet&&meaningful)?'squad-comp-ok':'squad-comp-warn'}">
+        ${complete ? '✓ Squad Complete' : (allMet&&meaningful) ? '✓ Requirements Met' : issues.length ? '⚠ '+issues.length+' issue(s)' : `Building (${total}/12)`}
       </span>
       <span style="font-size:11px;opacity:0.6;">${total}/12 players · ${os}/4 OS${isAdv?' · Advantage (IPL limit exempt)':''}</span>
     </div>
@@ -1814,7 +1849,6 @@ function renderRTMSetup() {
 }
 
 async function setPrevBFLTeam(playerId, teamName, selectEl) {
-  const prevVal = selectEl.dataset.prevVal ?? selectEl.value;
   selectEl.disabled = true;
 
   const updates = teamName
@@ -1861,4 +1895,4 @@ async function setPrevBFLTeam(playerId, teamName, selectEl) {
 }
 
 // Hook into switchTab to lazy-load RTM setup
-const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;
+// (Future implementation for lazy-loading RTM setup on tab switch)

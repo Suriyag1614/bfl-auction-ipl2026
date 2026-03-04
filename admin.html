@@ -9,7 +9,7 @@
   <title>BFL Auction — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=25">
+  <link rel="stylesheet" href="css/styles.css?v=26">
 </head>
 <body>
 
@@ -187,7 +187,7 @@
               <input class="form-input" type="text" id="player-search" placeholder="🔍 Name / role / team…" style="width:200px;" oninput="renderPlayerList()">
               <select class="form-input" id="filter-set"    style="width:120px;" onchange="renderPlayerList()"><option value="">All Sets</option></select>
               <select class="form-input" id="filter-role"   style="width:145px;" onchange="renderPlayerList()">
-                <option value="">All Roles</option><option>Batsman</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
+                <option value="">All Roles</option><option>Batter</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
               </select>
               <select class="form-input" id="filter-status" style="width:130px;" onchange="renderPlayerList()">
                 <option value="">All Status</option><option value="available">Available</option><option value="sold">Sold</option><option value="unsold">Unsold</option>
@@ -242,7 +242,7 @@
                 <option value="">All</option><option value="sold">Sold</option><option value="unsold">Unsold</option>
               </select>
               <select class="form-input" id="history-role" style="width:150px;" onchange="renderHistory()">
-                <option value="">All Roles</option><option>Batsman</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
+                <option value="">All Roles</option><option>Batter</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
               </select>
             </div>
             <div class="export-bar">
@@ -332,10 +332,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=25"></script>
+<script src="js/localstorage-shim.js?v=26"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=25"></script>
-<script src="js/supabaseClient.js?v=25"></script>
-<script src="js/admin.js?v=25"></script>
+<script src="js/modal.js?v=26"></script>
+<script src="js/supabaseClient.js?v=26"></script>
+<script src="js/admin.js?v=26"></script>
 </body>
 </html>

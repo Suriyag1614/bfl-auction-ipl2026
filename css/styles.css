@@ -93,6 +93,9 @@ img{display:block;max-width:100%;}
 .purse-display{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--gold);background:rgba(240,180,41,0.1);border:1px solid var(--gold-dim);padding:4px 16px;border-radius:var(--radius);white-space:nowrap;transition:all var(--t);}
 .purse-display:hover{background:rgba(240,180,41,0.16);box-shadow:var(--shadow-gold);}
 .purse-display.purse-updated{animation:count-up 0.4s ease;}
+.purse-display.purse-low{color:#fc8181;background:rgba(229,62,62,0.12);border-color:rgba(229,62,62,0.45);}
+.purse-display.purse-low:hover{background:rgba(229,62,62,0.2);box-shadow:0 0 16px rgba(229,62,62,0.25);}
+.purse-display.purse-critical{color:#fff;background:rgba(229,62,62,0.25);border-color:var(--red);animation:blink 1.2s infinite;}
 .advantage-badge,.rtm-badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:4px;font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:1px;animation:badge-pop 0.4s ease;}
 .advantage-badge{color:var(--gold);background:rgba(240,180,41,0.12);border:1px solid var(--gold-dim);}
 .rtm-badge{color:#c4b5fd;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.4);}

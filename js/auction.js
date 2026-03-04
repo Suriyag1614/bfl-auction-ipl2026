@@ -133,6 +133,10 @@ function updatePurseDisplay() {
     pd.textContent = fmt(myTeam.purse_remaining);
     pd.classList.add('purse-updated');
     setTimeout(() => pd.classList.remove('purse-updated'), 500);
+    // Colour warning: ≤5 Cr = critical (red blink), ≤10 Cr = low (red), else gold
+    const purse = Number(myTeam.purse_remaining);
+    pd.classList.toggle('purse-critical', purse <= 5);
+    pd.classList.toggle('purse-low',      purse > 5 && purse <= 10);
   }
 }
 
@@ -420,19 +424,43 @@ function renderLivePlayer(state, paused) {
 
   const next = hasBid ? Number(state.current_highest_bid)+0.25 : Number(p.base_price);
   const bidInput = el('bid-input');
-  if (bidInput) { bidInput.value = next.toFixed(2); bidInput.min = next.toFixed(2); bidInput.step = '0.25'; }
+  if (bidInput) {
+    // Always refresh min — if someone outbid you, stale value would be rejected by server
+    const newMin = next.toFixed(2);
+    bidInput.min = newMin;
+    // Only auto-update value if user isn't actively typing and current value is now too low
+    if (!bidInput.matches(':focus') && parseFloat(bidInput.value) < next) {
+      bidInput.value = newMin;
+    }
+    bidInput.step = '0.25';
+  }
 
   const bidBtn = el('bid-btn'), undoBtn = el('undo-bid-btn');
+  // Guard: squad full or OS limit reached
+  const mySquadCount = _lastSquadData.length;
+  const myOSCount    = _lastSquadData.filter(r => r.player?.is_overseas).length;
+  const squadFull    = mySquadCount >= 12;
+  const osBlocked    = p.is_overseas && myOSCount >= 4;
+  const bidBlocked   = squadFull || osBlocked;
+
+  const errEl = el('bid-error');
+  if (bidBlocked && errEl) {
+    errEl.textContent = squadFull
+      ? `Squad full (${mySquadCount}/12) — cannot bid`
+      : `Overseas limit reached (${myOSCount}/4) — cannot bid on overseas players`;
+  } else if (errEl && (errEl.textContent.includes('Squad full') || errEl.textContent.includes('Overseas limit'))) {
+    errEl.textContent = '';
+  }
+
   if (isMe) {
     if (bidBtn)  bidBtn.style.display  = 'none';
     if (undoBtn) undoBtn.style.display = (state.prev_bid_team_purse != null && !paused) ? 'inline-flex' : 'none';
     if (bidInput) bidInput.disabled = true;
   } else {
-    if (bidBtn)  { bidBtn.style.display = ''; bidBtn.disabled = paused; }
+    if (bidBtn)  { bidBtn.style.display = ''; bidBtn.disabled = paused || bidBlocked; }
     if (undoBtn) undoBtn.style.display = 'none';
-    if (bidInput) bidInput.disabled = paused;
+    if (bidInput) bidInput.disabled = paused || bidBlocked;
   }
-  const errEl = el('bid-error'); if (errEl) errEl.textContent = '';
 
   hide('no-auction'); hide('set-auction-view'); hide('rtm-pending'); show('player-card');
   if (paused) { stopTimer(); const t = el('timer'); if (t) { t.textContent = 'Paused'; t.className = 'timer'; } }
@@ -491,9 +519,18 @@ function renderRTMPending(state) {
   if (deadlineMs) startRTMTimer(deadlineMs);
 }
 
+let _rtmInFlight = false;
 async function exerciseRTM(accept) {
+  if (_rtmInFlight) return;
+  _rtmInFlight = true;
+  // Disable both buttons immediately
+  document.querySelectorAll('.rtm-actions .btn').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
   const { data, error } = await sb.rpc('exercise_rtm', { p_accept: accept });
-  if (error || !data?.success) { toast(error?.message || data?.error || 'RTM error', 'error'); return; }
+  _rtmInFlight = false;
+  if (error || !data?.success) {
+    document.querySelectorAll('.rtm-actions .btn').forEach(b => { b.disabled = false; b.style.opacity = ''; });
+    toast(error?.message || data?.error || 'RTM error', 'error'); return;
+  }
   _rtmAlerted = false;
   toast(accept ? '✓ RTM exercised!' : 'RTM declined.', accept ? 'success' : 'info');
   _lastStateHash = ''; await fetchState();
@@ -657,6 +694,13 @@ async function renderMiniHistory(wrapId) {
 }
 
 // ── All-Teams Leaderboard ─────────────────────────────────────
+let _allTeamsSort = { key: 'purse_remaining', dir: 'desc' };
+
+function sortAllTeams(key) {
+  if (_allTeamsSort.key === key) _allTeamsSort.dir = _allTeamsSort.dir === 'asc' ? 'desc' : 'asc';
+  else { _allTeamsSort.key = key; _allTeamsSort.dir = key === 'team_name' ? 'asc' : 'desc'; }
+  renderAllTeams();
+}
 async function loadAllTeams() {
   try {
     const { data: teams } = await sb.from('teams')
@@ -680,7 +724,24 @@ async function loadAllTeams() {
 function renderAllTeams() {
   const cont = el('all-teams-table'); if (!cont) return;
   if (!_teamsCache.length) { cont.innerHTML = '<tr><td colspan="4" class="empty-cell">Loading…</td></tr>'; return; }
-  cont.innerHTML = _teamsCache.map(t => {
+
+  const { key, dir } = _allTeamsSort;
+  const sorted = [..._teamsCache].sort((a, b) => {
+    let va = a[key] ?? '', vb = b[key] ?? '';
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    return dir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+  });
+
+  // Update header sort indicators
+  ['col-team','col-purse','col-sq','col-os'].forEach((cls, i) => {
+    const keys = ['team_name','purse_remaining','playerCount','osCount'];
+    const th = document.querySelector(`.all-teams-table-inner thead th:nth-child(${i+1})`);
+    if (!th) return;
+    th.classList.remove('sort-asc','sort-desc');
+    if (keys[i] === key) th.classList.add('sort-' + dir);
+  });
+
+  cont.innerHTML = sorted.map(t => {
     const rtmRem = Math.max(0, (t.rtm_cards_total||0) - (t.rtm_cards_used||0));
     const isMe   = t.id === myTeam?.id;
     return `<tr class="${isMe?'row-mine':''}">
@@ -791,6 +852,24 @@ async function placeSetBid(slotId) {
   if (isNaN(raw) || raw <= 0) { if (errEl) errEl.textContent = 'Enter valid amount'; return; }
   const amount = Math.round(raw / 0.25) * 0.25;
   if (Math.abs(amount - raw) > 0.001) { if (errEl) errEl.textContent = 'Must be ×₹0.25 Cr'; inp.value = amount.toFixed(2); return; }
+
+  // Cross-slot purse check: sum all slots where I'm currently winning (excluding this slot)
+  const myCurrentWinningBids = (currentState?.status === 'set_live')
+    ? Array.from(document.querySelectorAll('[id^="set-card-"].leading')).reduce((sum, card) => {
+        const cardSlotId = card.id.replace('set-card-', '');
+        if (cardSlotId === String(slotId)) return sum; // exclude this slot (replacing my bid)
+        const bidEl = card.querySelector('.set-slot-bid-val');
+        const bidText = bidEl?.textContent?.replace(/[^0-9.]/g, '') || '0';
+        return sum + (parseFloat(bidText) || 0);
+      }, 0)
+    : 0;
+
+  const totalCommitted = amount + myCurrentWinningBids;
+  if (totalCommitted > myTeam.purse_remaining) {
+    if (errEl) errEl.textContent = `Total across all slots (₹${totalCommitted.toFixed(2)} Cr) exceeds purse (₹${myTeam.purse_remaining.toFixed(2)} Cr)`;
+    return;
+  }
+
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   const { data, error } = await sb.rpc('place_set_bid', { p_slot_id: slotId, bid_amount: amount });
   if (btn) { btn.disabled = false; btn.textContent = 'Bid'; }
@@ -914,6 +993,8 @@ function renderSquadComp(players) {
 
   const allMet = !issues.length;
   const complete = total === 12 && allMet;
+  // Don't show "Requirements Met" with too few players — misleading at e.g. 3/12
+  const meaningful = total >= 8;
 
   const roleDefs = [
     { label:'WK',   val:wk,   min:1 },
@@ -926,8 +1007,8 @@ function renderSquadComp(players) {
 
   cont.innerHTML = `<div class="squad-comp-bar">
     <div class="squad-comp-header">
-      <span class="${complete ? 'squad-comp-ok' : allMet ? 'squad-comp-ok' : 'squad-comp-warn'}">
-        ${complete ? '✓ Squad Complete' : allMet ? '✓ Requirements Met' : '⚠ ' + issues.length + ' issue(s)'}
+      <span class="${complete ? 'squad-comp-ok' : (allMet && meaningful) ? 'squad-comp-ok' : 'squad-comp-warn'}">
+        ${complete ? '✓ Squad Complete' : (allMet && meaningful) ? '✓ Requirements Met' : issues.length ? '⚠ ' + issues.length + ' issue(s)' : `Building (${total}/12)`}
       </span>
       <span style="font-size:11px;opacity:0.6;">${total}/12 players</span>
     </div>
@@ -1068,7 +1149,21 @@ function subscribeRealtime() {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && document.activeElement === el('bid-input')) placeBid();
+  // Enter on bid input → place bid
+  if (e.key === 'Enter' && document.activeElement === el('bid-input')) { placeBid(); return; }
+  // B → focus bid input (when not typing elsewhere)
+  if (e.key === 'b' || e.key === 'B') {
+    const tag = document.activeElement?.tagName;
+    if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') {
+      const inp = el('bid-input');
+      if (inp && !inp.disabled) { e.preventDefault(); inp.focus(); inp.select(); }
+    }
+  }
+  // Escape → clear bid error, blur input
+  if (e.key === 'Escape') {
+    const err = el('bid-error'); if (err) err.textContent = '';
+    document.activeElement?.blur();
+  }
 });
 
 init();
