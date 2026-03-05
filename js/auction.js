@@ -123,12 +123,58 @@ function playOutbidAlert() {
   } catch(e) {}
 }
 
-function toast(msg, type='info') {
+// ── Toast config ─────────────────────────────────────────────
+const TOAST_ICONS = {
+  success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
+  error:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  warn:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none"/></svg>',
+  info:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="1" fill="currentColor" stroke="none"/></svg>',
+  rtm:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>',
+};
+const TOAST_TITLES = {
+  success: 'Success', error: 'Error Occurred',
+  warn: 'Warning', info: 'Info', rtm: 'RTM Opportunity',
+};
+const TOAST_DURATION = { success:4000, error:6000, warn:5000, info:4000, rtm:8000 };
+const _knownTypes = ['success','error','warn','info','rtm'];
+
+function _stripEmoji(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')
+    .replace(/[\u2600-\u27BF]/g, '')
+    .replace(/^[\s\u00B7\-]+/, '').replace(/\s{2,}/g, ' ').trim();
+}
+function _esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toast(titleOrMsg, subtitleOrType, typeArg) {
   const c = el('toast-container'); if (!c) return;
+  let title, sub, t;
+  if (_knownTypes.includes(subtitleOrType) && !typeArg) {
+    t = subtitleOrType; title = TOAST_TITLES[t]; sub = _stripEmoji(titleOrMsg);
+  } else if (typeArg && _knownTypes.includes(typeArg)) {
+    t = typeArg; title = _stripEmoji(titleOrMsg); sub = _stripEmoji(subtitleOrType);
+  } else {
+    t = 'info'; title = TOAST_TITLES.info; sub = _stripEmoji(titleOrMsg);
+  }
+  const dur = TOAST_DURATION[t] || 4000;
   const d = document.createElement('div');
-  d.className = 'toast toast-' + type; d.textContent = msg; c.appendChild(d);
-  setTimeout(() => d.classList.add('toast-exit'), 3200);
-  setTimeout(() => d.remove(), 3700);
+  d.className = 'toast toast-' + t;
+  d.style.setProperty('--toast-dur', dur + 'ms');
+  d.innerHTML =
+    '<div class="toast-icon">' + (TOAST_ICONS[t]||'') + '</div>' +
+    '<div class="toast-body">' +
+      '<div class="toast-title">' + _esc(title) + '</div>' +
+      (sub ? '<div class="toast-sub">' + _esc(sub) + '</div>' : '') +
+    '</div>' +
+    '<button class="toast-close" onclick="this.closest(\'.toast\').remove()">&#x2715;</button>' +
+    '<div class="toast-progress"></div>';
+  c.appendChild(d);
+  while (c.children.length > 5) c.removeChild(c.firstChild);
+  setTimeout(() => d.classList.add('toast-exit'), dur - 350);
+  setTimeout(() => d.remove(), dur + 200);
 }
 
 async function doLogout() { stopPolling(); await sb.auth.signOut(); location.href = 'index.html'; }
@@ -276,11 +322,11 @@ async function applyState(state) {
     const noMsg = el('no-auction-msg');
     if (noMsg) {
       if (state.last_player_result === 'set_done')
-        noMsg.innerHTML = `⚡ <strong>Set complete</strong> — ${state.last_sold_to_team||''}`;
+        noMsg.innerHTML = '<strong>Set Complete</strong> — ' + (state.last_sold_to_team||'');
       else if (state.last_player_result === 'sold' && state.last_player)
-        noMsg.innerHTML = `✅ <strong>${state.last_player.name}</strong> sold to <strong>${state.last_sold_to_team}</strong> for <strong>${fmt(state.last_sold_price)}</strong>`;
+        noMsg.innerHTML = '<strong>' + state.last_player.name + '</strong> sold to <strong>' + state.last_sold_to_team + '</strong> for <strong>' + fmt(state.last_sold_price) + '</strong>';
       else if (state.last_player_result === 'unsold' && state.last_player)
-        noMsg.innerHTML = `📭 <strong>${state.last_player.name}</strong> went <strong>unsold</strong>`;
+        noMsg.innerHTML = '<strong>' + state.last_player.name + '</strong> went <strong>unsold</strong>';
       else if (state.status === 'paused')
         noMsg.textContent = '⏸ Auction is paused';
       else
@@ -398,7 +444,7 @@ function renderLivePlayer(state, paused) {
         </div>
         <div id="bid-error" class="error-msg"></div>
         <div class="bid-latency" id="bid-latency"></div>
-        <div class="info-msg" style="font-size:11px;">Bids must be ×₹0.25 Cr · Enter to bid · <kbd style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:9px;font-family:monospace;">B</kbd> to focus</div>
+        <div class="info-msg" style="font-size:11px;">Bids must be ×0.25 Cr increments · Enter to submit · <kbd style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:9px;font-family:monospace;">B</kbd> to focus</div>
       </div>
       <div id="bid-history-wrap"></div>
       <div id="mini-history-wrap-live"></div>`;
@@ -477,7 +523,7 @@ function renderLivePlayer(state, paused) {
   }
   // Outbid alert: fire when you lose the lead
   if (_wasLeading && !isMe && hasBid) {
-    toast('🔴 You were outbid! ' + fmt(state.current_highest_bid) + ' by ' + (state.highest_team?.team_name||'?'), 'warn');
+    toast('Outbid', 'Now leading: ' + fmt(state.current_highest_bid) + ' by ' + (state.highest_team?.team_name||'?'), 'warn');
     playOutbidAlert();
   }
   _wasLeading = isMe;
@@ -638,10 +684,10 @@ async function exerciseRTM(accept) {
   _rtmInFlight = false;
   if (error || !data?.success) {
     document.querySelectorAll('.rtm-actions .btn').forEach(b => { b.disabled = false; b.style.opacity = ''; });
-    toast(error?.message || data?.error || 'RTM error', 'error'); return;
+    toast('RTM Error', error?.message || data?.error || 'RTM action failed', 'error'); return;
   }
   _rtmAlerted = false;
-  toast(accept ? '✓ RTM exercised!' : 'RTM declined.', accept ? 'success' : 'info');
+  toast(accept ? 'RTM Exercised' : 'RTM Declined', accept ? 'Player retained at match price' : 'Player goes to winning bidder', accept ? 'success' : 'info');
   _lastStateHash = ''; await fetchState();
 }
 
@@ -1000,10 +1046,10 @@ async function placeBid() {
   if (!input || !bidBtn) return;
   errEl.textContent = '';
   const raw = parseFloat(input.value);
-  if (isNaN(raw) || raw <= 0) { errEl.textContent = 'Enter a valid amount'; return; }
+  if (isNaN(raw) || raw <= 0) { errEl.textContent = 'Enter a valid amount'; toast('Invalid Bid', 'Please enter a valid bid amount', 'warn'); return; }
   const amount = Math.round(raw / 0.25) * 0.25;
-  if (Math.abs(amount - raw) > 0.001) { errEl.textContent = 'Bid must be ×₹0.25 Cr'; input.value = amount.toFixed(2); return; }
-  if (amount > myTeam.purse_remaining) { errEl.textContent = 'Insufficient purse (' + fmt(myTeam.purse_remaining) + ')'; return; }
+  if (Math.abs(amount - raw) > 0.001) { errEl.textContent = 'Must be 0.25 Cr increments'; input.value = amount.toFixed(2); toast('Invalid Amount', 'Bids must be in 0.25 Cr increments', 'warn'); return; }
+  if (amount > myTeam.purse_remaining) { errEl.textContent = 'Insufficient purse'; toast('Insufficient Purse', 'Bid of ' + fmt(amount) + ' exceeds remaining ' + fmt(myTeam.purse_remaining), 'error'); return; }
   bidBtn.disabled = true; bidBtn.classList.add('pending'); bidBtn.textContent = '⏳';
   _bidTs = Date.now();
   const { data, error } = await sb.rpc('place_bid', { bid_amount: amount });
@@ -1016,13 +1062,13 @@ async function placeBid() {
     latEl.textContent = '⚡ Server response: ' + ms + 'ms';
     setTimeout(() => { if (latEl) { latEl.textContent = ''; latEl.className = 'bid-latency'; } }, 5000);
   }
-  if (error)          { errEl.textContent = error.message;    return; }
-  if (!data?.success) { errEl.textContent = data?.error||'Error'; return; }
+  if (error)          { errEl.textContent = error.message; toast('Bid Rejected', error.message, 'error'); return; }
+  if (!data?.success) { errEl.textContent = data?.error||'Error'; toast('Bid Rejected', data?.error||'Server error', 'error'); return; }
   bidBtn.style.display = 'none'; input.disabled = true;
   const undoBtn = el('undo-bid-btn'); if (undoBtn) undoBtn.style.display = 'inline-flex';
   input.classList.add('bid-success-flash');
   setTimeout(() => input.classList.remove('bid-success-flash'), 600);
-  toast('✓ Bid: ' + fmt(amount), 'success');
+  toast('Bid Placed', fmt(amount) + ' — you are leading', 'success');
   _lastStateHash = ''; fetchState();
 }
 
@@ -1031,11 +1077,11 @@ async function undoBid() {
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   const { data, error } = await sb.rpc('undo_bid');
   if (btn) { btn.disabled = false; btn.textContent = '↩ Undo'; }
-  if (error || !data?.success) { toast(error?.message||data?.error||'Cannot undo', 'warn'); return; }
+  if (error || !data?.success) { toast('Cannot Undo', error?.message||data?.error||'Undo not available', 'warn'); return; }
   const bidBtn = el('bid-btn'); if (bidBtn) { bidBtn.style.display = ''; bidBtn.disabled = false; }
   const input  = el('bid-input'); if (input) input.disabled = false;
   if (btn) btn.style.display = 'none';
-  toast('↩ Bid undone', 'info');
+  toast('Bid Undone', 'Your bid has been reversed', 'info');
   _lastStateHash = ''; await fetchState();
 }
 
@@ -1045,9 +1091,9 @@ async function placeSetBid(slotId) {
   const btn = inp?.nextElementSibling;
   if (!inp) return; if (errEl) errEl.textContent = '';
   const raw = parseFloat(inp.value);
-  if (isNaN(raw) || raw <= 0) { if (errEl) errEl.textContent = 'Enter valid amount'; return; }
+  if (isNaN(raw) || raw <= 0) { if (errEl) errEl.textContent = 'Enter a valid bid amount'; toast('Invalid Bid', 'Please enter a valid amount', 'warn'); return; }
   const amount = Math.round(raw / 0.25) * 0.25;
-  if (Math.abs(amount - raw) > 0.001) { if (errEl) errEl.textContent = 'Must be ×₹0.25 Cr'; inp.value = amount.toFixed(2); return; }
+  if (Math.abs(amount - raw) > 0.001) { if (errEl) errEl.textContent = 'Bids must be in 0.25 Cr increments'; inp.value = amount.toFixed(2); toast('Invalid Amount', 'Bids must be in 0.25 Cr increments', 'warn'); return; }
 
   // Cross-slot purse check: sum all sc-leading cards (excluding this slot)
   const myCurrentWinningBids = (currentState?.status === 'set_live')
@@ -1070,7 +1116,7 @@ async function placeSetBid(slotId) {
   const { data, error } = await sb.rpc('place_set_bid', { p_slot_id: slotId, bid_amount: amount });
   if (btn) { btn.disabled = false; btn.textContent = 'Bid'; }
   if (error || !data?.success) { if (errEl) errEl.textContent = error?.message||data?.error||'Error'; return; }
-  toast('✓ Set bid: ' + fmt(amount), 'success');
+  toast('Set Bid Placed', fmt(amount) + ' on ' + (document.getElementById('set-card-'+slotId)?.querySelector('.sc-name')?.textContent||'player'), 'success');
   // Store bid amount on card for cross-slot purse calculation
   const bidCard = document.getElementById('set-card-'+slotId);
   if (bidCard) bidCard.dataset.myBid = amount;
@@ -1080,8 +1126,8 @@ async function placeSetBid(slotId) {
 
 async function undoSetBid(slotId) {
   const { data, error } = await sb.rpc('undo_set_bid', { p_slot_id: slotId });
-  if (error || !data?.success) { toast(error?.message||data?.error||'Cannot undo', 'warn'); return; }
-  toast('↩ Set bid undone', 'info');
+  if (error || !data?.success) { toast('Cannot Undo', error?.message||data?.error||'Undo not available', 'warn'); return; }
+  toast('Set Bid Undone', 'Your set bid has been reversed', 'info');
   await refreshPurse();
   _lastSlotsHash = ''; _lastStateHash = ''; fetchState();
 }
@@ -1281,8 +1327,8 @@ async function exportSquadCSV() {
     a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
     a.download = (myTeam.team_name||'squad').replace(/\s+/g,'_') + '_squad.csv';
     a.click();
-    toast('⬇ CSV exported', 'success');
-  } catch(e) { toast('Export failed', 'error'); }
+    toast('CSV Exported', 'Squad file downloaded successfully', 'success');
+  } catch(e) { toast('Export Failed', 'Could not generate the file', 'error'); }
 }
 
 // ── Export PDF (team squad) ───────────────────────────────────
@@ -1356,8 +1402,8 @@ async function exportSquadPDF() {
 
     const w = window.open('', '_blank');
     if (w) { w.document.write(html); w.document.close(); }
-    toast('📄 PDF opened', 'success');
-  } catch(e) { toast('PDF failed', 'error'); }
+    toast('PDF Ready', 'Squad report opened in new tab', 'success');
+  } catch(e) { toast('PDF Failed', 'Could not generate squad report', 'error'); }
 }
 
 // ── Realtime ──────────────────────────────────────────────────
@@ -1371,7 +1417,7 @@ function setConnState(s) {
   if (!banner) return;
   if (s === 'connected') {
     banner.className = 'conn-banner hidden';
-    if (prev !== 'connected') toast('✓ Reconnected to live server', 'success');
+    if (prev !== 'connected') toast('Reconnected', 'Live updates restored', 'success');
     _reconnectCount = 0;
   } else if (s === 'reconnecting') {
     banner.className = 'conn-banner reconnecting';

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-//  ADMIN.JS v8 — polling-first architecture
+//  ADMIN.JS v34 — rich toast system, clean UI
 //  Polling every 2s as ground truth; realtime = speed boost
 // ─────────────────────────────────────────────────────────────
 
@@ -331,7 +331,7 @@ async function startAuction(playerId) {
   const { data, error } = await sb.rpc('start_auction', { p_player_id: playerId, p_force: forceOverride });
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
-  toast('▶ Started: ' + (data.player||''), 'success');
+  toast('Auction Started', (data.player||'Player') + ' is now live', 'success');
   await loadAuctionState(); renderPlayerList();
 }
 
@@ -341,7 +341,7 @@ async function pauseAuction() {
   const { data, error } = await sb.rpc('pause_auction');
   if (error) return showError(error.message);
   if (!data.success) return showError(data.error);
-  toast('Paused', 'info'); await loadAuctionState();
+  toast('Auction Paused', 'Bidding has been paused', 'info'); await loadAuctionState();
 }
 
 // #13 — Panic cancel: stop live player, return to Available (no sale, no unsold mark)
@@ -365,7 +365,7 @@ async function cancelLiveAuction() {
     rtm_team_id: null,
   }).eq('id', 1);
   if (error) return showError('Cancel failed: ' + error.message);
-  toast('✕ Auction cancelled — ' + playerName + ' back to Available', 'warn');
+  toast('Auction Cancelled', playerName + ' returned to Available pool', 'warn');
   await Promise.all([loadAuctionState(), loadPlayers()]);
   renderPlayerList();
 }
@@ -375,7 +375,7 @@ async function resumeAuction() {
   const { data, error } = await sb.rpc('resume_auction');
   if (error) return showError(error.message);
   if (!data.success) return showError(data.error);
-  toast('Resumed', 'success'); await loadAuctionState();
+  toast('Auction Resumed', 'Bidding is now live again', 'success'); await loadAuctionState();
 }
 
 async function forceSell() {
@@ -387,10 +387,14 @@ async function forceSell() {
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
   const result = data.result || data.message;
-  toast(result === 'unsold' ? 'Marked Unsold — no bids' :
-        result === 'rtm_pending' ? `🔄 RTM available — ${data.rtm_team}` :
-        '✓ Sold!',
-        result === 'unsold' ? 'warn' : 'success');
+  toast(
+    result === 'unsold'     ? 'Marked Unsold'       :
+    result === 'rtm_pending'? 'RTM Available'       : 'Sold',
+    result === 'unsold'     ? 'No bids received — player marked unsold' :
+    result === 'rtm_pending'? data.rtm_team + ' can exercise RTM' :
+                              'Player successfully sold',
+    result === 'unsold'     ? 'warn' : result === 'rtm_pending' ? 'rtm' : 'success'
+  );
   await Promise.all([loadPlayers(), loadAuctionState(), loadTeams(), loadHistory()]);
   await updateStats();
 }
@@ -401,7 +405,7 @@ async function resetState() {
   const { data, error } = await sb.rpc('reset_auction_state');
   if (error) return showError(error.message);
   if (!data.success) return showError(data.error);
-  toast('State reset', 'info'); await loadAuctionState(); renderPlayerList();
+  toast('State Reset', 'Auction state returned to Waiting', 'info'); await loadAuctionState(); renderPlayerList();
 }
 
 async function restartAuction() {
@@ -479,7 +483,7 @@ async function restartAuction() {
     // Step 7: recompute RTM cards via RPC (this one always works)
     await sb.rpc('compute_rtm_cards');
 
-    toast('Auction restarted — purses reset', 'warn');
+    toast('Auction Restarted', 'All sold players cleared, purses reset to 100 Cr', 'warn');
     await Promise.all([loadPlayers(), loadTeams(), loadAuctionState(), loadHistory()]);
     await updateStats();
   } catch (err) {
@@ -490,7 +494,7 @@ async function restartAuction() {
 // #14 — Queue all unsold players for re-auction (mark them as available again)
 async function queueAllUnsold() {
   const count = unsoldIds.size;
-  if (!count) { toast('No unsold players to re-queue', 'info'); return; }
+  if (!count) { toast('Nothing to Re-queue', 'No unsold players found', 'info'); return; }
   if (!await confirm2(
     `Remove **Unsold** mark from all **${count}** unsold players?\nThey return to Available and can be re-auctioned.`,
     { title:'Re-queue All Unsold', icon:'↻' }
@@ -500,7 +504,7 @@ async function queueAllUnsold() {
   const ids = [...unsoldIds];
   const { error } = await sb.from('unsold_log').delete().in('player_id', ids);
   if (error) return showError('Re-queue failed: ' + error.message);
-  toast('↻ ' + count + ' unsold player(s) returned to Available', 'success');
+  toast('Re-queued', count + ' unsold player(s) returned to Available', 'success');
   await Promise.all([loadPlayers(), loadAuctionState()]);
   renderPlayerList();
 }
@@ -511,7 +515,7 @@ async function resetSet() {
   const { data, error } = await sb.rpc('reset_set_auction');
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
-  toast('Set auction reset — purses refunded', 'warn');
+  toast('Set Reset', 'All slot bids cleared, purses refunded', 'warn');
   activeSetSlots = [];
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   await Promise.all([loadAuctionState(), loadTeams()]);
@@ -533,7 +537,7 @@ async function resetDay() {
   const { data, error } = await sb.rpc('reset_day', { p_date: isoToday });
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
-  toast(`Day ${today} reset — ${data.players_cleared} players cleared, ₹${Number(data.purse_refunded||0).toFixed(2)} Cr refunded`, 'warn');
+  toast('Day Reset', data.players_cleared + ' players cleared, ' + Number(data.purse_refunded||0).toFixed(2) + ' Cr refunded', 'warn');
   // Clear the last result banner
   await sb.from('auction_state').update({
     last_player_id: null, last_player_result: null,
@@ -552,7 +556,7 @@ async function adminExerciseRTM(accept) {
   const { data, error } = await sb.rpc('exercise_rtm', { p_accept: accept });
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
-  toast(accept ? '✓ RTM exercised' : 'RTM declined', 'success');
+  toast(accept ? 'RTM Exercised' : 'RTM Declined', accept ? 'Player retained at winning bid price' : 'Player awarded to winning bidder', accept ? 'success' : 'info');
   await Promise.all([loadAuctionState(), loadTeams(), loadHistory()]);
   await updateStats(); renderPlayerList();
 }
@@ -569,7 +573,7 @@ async function undoSale() {
     last_player_id: null, last_player_result: null,
     last_sold_price: null, last_sold_to_team: null
   }).eq('id', 1);
-  toast('↩ Sale undone', 'warn');
+  toast('Sale Undone', 'Player returned to Available, purse refunded', 'warn');
   await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]); await updateStats();
 }
 
@@ -588,12 +592,12 @@ async function undoSaleByPlayer(playerName, teamName, price) {
     if (error?.message?.includes('does not exist') || error?.code === 'PGRST202') {
       const { data: d2, error: e2 } = await sb.rpc('undo_last_sale');
       if (e2 || !d2?.success) return showError((e2||d2)?.message || 'Undo failed');
-      toast('↩ Sale undone (used global undo — add undo_sale_by_player RPC for precision)', 'warn');
+      toast('Sale Undone', 'Player returned to Available (global undo used)', 'warn');
     } else {
       return showError(error?.message || data?.error || 'Undo failed');
     }
   } else {
-    toast(`↩ Sale of ${playerName} undone`, 'warn');
+    toast('Sale Undone', playerName + ' returned to Available, purse refunded', 'warn');
   }
   // Clear the last result banner
   await sb.from('auction_state').update({
@@ -616,7 +620,7 @@ async function undoUnsold(playerId) {
       last_sold_price: null, last_sold_to_team: null
     }).eq('id', 1);
   }
-  toast('↩ Cleared', 'info');
+  toast('Cleared', 'Unsold mark removed — player back to Available', 'info');
   unsoldIds.delete(playerId); delete unsoldLogMap[playerId];
   renderPlayerList(); await updateStats(); await loadHistory();
 }
@@ -637,7 +641,7 @@ async function toggleAutopilot() {
   if (error) return showError(error.message);
   autopilotEnabled = newVal;
   renderAutopilotBtn();
-  toast(newVal ? '🤖 Autopilot ON' : '🤖 Autopilot OFF', newVal ? 'success' : 'warn');
+  toast(newVal ? 'Autopilot Enabled' : 'Autopilot Disabled', newVal ? 'Players will auto-sell after timer' : 'Manual force-sell required', newVal ? 'success' : 'warn');
 }
 async function setAutopilotDelay(seconds) {
   const s = parseInt(seconds);
@@ -645,7 +649,7 @@ async function setAutopilotDelay(seconds) {
   const { data, error } = await sb.rpc('set_autopilot_delay', { p_seconds: s });
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
-  toast('Auto-sell delay: ' + s + 's', 'info');
+  toast('Auto-sell Delay Updated', s + ' seconds after timer ends', 'info');
 }
 
 function renderAutopilotBtn() {
@@ -913,7 +917,7 @@ function hideAutoSellWarning() {
 
 function cancelAutoSell() {
   clearAutoSell();
-  toast('⏸ Auto-sell cancelled — use Force Sell when ready', 'info');
+  toast('Auto-sell Cancelled', 'Use Force Sell when ready to close bidding', 'info');
 }
 
 // ─── UNSOLD QUEUE ─────────────────────────────────────────────
@@ -1227,8 +1231,8 @@ function exportHistoryCSV() {
     const csv = [headers,...rows].map(row => row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
     const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
     a.download = 'BFL_Auction_History.csv'; a.click();
-    toast('⬇ History CSV exported', 'success');
-  } catch(e) { toast('Export failed','error'); }
+    toast('CSV Exported', 'History file downloaded successfully', 'success');
+  } catch(e) { toast('Export Failed', 'Could not generate file', 'error'); }
 }
 
 // ─── EXPORT HISTORY PDF ───────────────────────────────────────
@@ -1299,8 +1303,8 @@ function exportHistoryPDF() {
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
     const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
-    toast('📄 History PDF opened','success');
-  } catch(e) { toast('PDF failed','error'); }
+    toast('PDF Ready', 'History report opened in new tab', 'success');
+  } catch(e) { toast('PDF Failed', 'Could not generate report', 'error'); }
 }
 
 // ─── EXPORT ALL SQUADS PDF ────────────────────────────────────
@@ -1308,7 +1312,7 @@ async function exportAllSquadsPDF() {
   try {
     const { data: allSquads } = await sb.from('team_players')
       .select('sold_price,is_retained,is_rtm,team_id,team:teams(team_name,purse_remaining,is_advantage_holder,rtm_cards_total,rtm_cards_used),player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)');
-    if (!allSquads) { toast('No squad data','warn'); return; }
+    if (!allSquads) { toast('No Data', 'No squad data available to export', 'warn'); return; }
     const byTeam = {};
     allSquads.forEach(r => {
       const tn = r.team?.team_name||r.team_id;
@@ -1369,8 +1373,8 @@ async function exportAllSquadsPDF() {
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
     const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
-    toast('📄 All Squads PDF opened','success');
-  } catch(e) { toast('PDF failed: '+e.message,'error'); console.error(e); }
+    toast('PDF Ready', 'All squads report opened in new tab', 'success');
+  } catch(e) { toast('PDF Failed', e.message, 'error'); console.error(e); }
 }
 
 // ─── EXPORT ALL SQUADS CSV ────────────────────────────────────
@@ -1400,14 +1404,14 @@ async function exportAllSquadsCSV() {
     const csv = [headers,...rows].map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
     const a = document.createElement('a'); a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
     a.download='BFL_All_Squads.csv'; a.click();
-    toast('⬇ All Squads CSV exported','success');
-  } catch(e) { toast('CSV failed','error'); }
+    toast('CSV Exported', 'All squads file downloaded', 'success');
+  } catch(e) { toast('CSV Failed', 'Could not generate CSV file', 'error'); }
 }
 
 // ─── EXPORT SINGLE TEAM SQUAD PDF (admin) ────────────────────
 async function exportTeamSquadPDF() {
   const teamId = el('squad-team-select')?.value;
-  if (!teamId) { toast('Select a team first','warn'); return; }
+  if (!teamId) { toast('No Team Selected', 'Please select a team first', 'warn'); return; }
   const team = allTeams.find(t => t.id === teamId);
   try {
     const { data: rows } = await sb.from('team_players')
@@ -1458,7 +1462,7 @@ async function exportTeamSquadPDF() {
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
     const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
-    toast('📄 Squad PDF opened','success');
+    toast('PDF Ready', 'Squad report opened in new tab', 'success');
   } catch(e) { toast('PDF failed','error'); }
 }
 
@@ -1715,14 +1719,65 @@ function setConn(state) {
   dot.className = 'conn-dot ' + state;
   dot.title = {connected:'Connected',reconnecting:'Reconnecting…',error:'Error'}[state]||state;
 }
-function toast(msg, type='info') {
-  const c = el('toast-container'); if (!c) return;
-  const d = document.createElement('div');
-  d.className = 'toast toast-' + type; d.textContent = msg; c.appendChild(d);
-  setTimeout(() => d.classList.add('toast-exit'), 3000);
-  setTimeout(() => d.remove(), 3500);
+// ── Toast config ─────────────────────────────────────────────
+const TOAST_ICONS = {
+  success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
+  error:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  warn:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><circle cx="12" cy="17" r="1" fill="currentColor" stroke="none"/></svg>',
+  info:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="1" fill="currentColor" stroke="none"/></svg>',
+  rtm:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>',
+};
+const TOAST_TITLES = {
+  success: 'Success', error: 'Error Occurred',
+  warn: 'Warning', info: 'Info', rtm: 'RTM Opportunity',
+};
+const TOAST_DURATION = { success:4000, error:6000, warn:5000, info:4000, rtm:8000 };
+const _knownTypes = ['success','error','warn','info','rtm'];
+
+function _stripEmoji(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')
+    .replace(/[\u2600-\u27BF]/g, '')
+    .replace(/^[\s\u00B7\-]+/, '').replace(/\s{2,}/g, ' ').trim();
 }
-function showError(msg) { const e=el('admin-error'); if(e) e.textContent=msg; console.error('[Admin]',msg); }
+function _esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toast(titleOrMsg, subtitleOrType, typeArg) {
+  const c = el('toast-container'); if (!c) return;
+  let title, sub, t;
+  if (_knownTypes.includes(subtitleOrType) && !typeArg) {
+    t = subtitleOrType; title = TOAST_TITLES[t]; sub = _stripEmoji(titleOrMsg);
+  } else if (typeArg && _knownTypes.includes(typeArg)) {
+    t = typeArg; title = _stripEmoji(titleOrMsg); sub = _stripEmoji(subtitleOrType);
+  } else {
+    t = 'info'; title = TOAST_TITLES.info; sub = _stripEmoji(titleOrMsg);
+  }
+  const dur = TOAST_DURATION[t] || 4000;
+  const d = document.createElement('div');
+  d.className = 'toast toast-' + t;
+  d.style.setProperty('--toast-dur', dur + 'ms');
+  d.innerHTML =
+    '<div class="toast-icon">' + (TOAST_ICONS[t]||'') + '</div>' +
+    '<div class="toast-body">' +
+      '<div class="toast-title">' + _esc(title) + '</div>' +
+      (sub ? '<div class="toast-sub">' + _esc(sub) + '</div>' : '') +
+    '</div>' +
+    '<button class="toast-close" onclick="this.closest(\'.toast\').remove()">&#x2715;</button>' +
+    '<div class="toast-progress"></div>';
+  c.appendChild(d);
+  while (c.children.length > 5) c.removeChild(c.firstChild);
+  setTimeout(() => d.classList.add('toast-exit'), dur - 350);
+  setTimeout(() => d.remove(), dur + 200);
+}
+function showError(msg) {
+  const e = el('admin-error');
+  if (e) { e.textContent = msg; setTimeout(() => { if(e.textContent===msg) e.textContent=''; }, 8000); }
+  toast('Error Occurred', msg, 'error');
+  console.error('[Admin]', msg);
+}
 function clearError()   { const e=el('admin-error'); if(e) e.textContent=''; }
 
 // ─── QUICK-LAUNCH ─────────────────────────────────────────────
@@ -1937,7 +1992,7 @@ async function launchSetAuction(setName) {
   const { data, error } = await sb.rpc('start_set_auction', { p_set_name: setName });
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error||'Error');
-  toast(`⚡ ${setName} launched — ${data.player_count} players live!`, 'success');
+  toast('Set Launched', setName + ' is live with ' + data.player_count + ' players', 'success');
   await loadAuctionState();
   await loadSetSlots(setName);
   subscribeSetSlots(setName);
@@ -1952,7 +2007,7 @@ async function closeSetAuction() {
   const { data, error } = await sb.rpc('close_set_auction', { p_set_name: setName });
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error||'Error');
-  toast(`✓ Set closed — ${data.sold} sold, ${data.unsold} unsold`, 'success');
+  toast('Set Complete', data.sold + ' sold, ' + data.unsold + ' unsold', 'success');
   clearInterval(adminSetTimerInterval);
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   activeSetSlots = [];
@@ -1986,7 +2041,7 @@ async function cancelSetAuction() {
     .eq('set_name', setName).eq('status', 'live');
   if (slotsErr) console.warn('Slots reset warn:', slotsErr.message);
 
-  toast(`✕ Set "${setName}" cancelled — players returned to pool`, 'warn');
+  toast('Set Cancelled', setName + ' cancelled — players returned to pool', 'warn');
   clearInterval(adminSetTimerInterval);
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   activeSetSlots = [];
@@ -2117,7 +2172,7 @@ async function addRetention() {
   const { data, error } = await sb.rpc('add_retention', { p_team_id:teamId, p_player_id:playerId, p_price:price, p_slot:slot });
   if (error) { errEl.textContent = error.message; return; }
   if (!data?.success) { errEl.textContent = data?.error||'Error'; return; }
-  toast(`Retention added · Slot ${slot} · ₹${price} Cr`, 'success');
+  toast('Retention Added', 'Slot ' + slot + ' — ' + price + ' Cr', 'success');
   await Promise.all([loadTeams(), loadPlayers(), renderRetentionView()]); updateStats();
 }
 
@@ -2132,7 +2187,7 @@ async function removeRetention(playerId, teamId, price) {
     const { data: t } = await sb.from('teams').select('purse_remaining').eq('id', teamId).single();
     if (t) await sb.from('teams').update({ purse_remaining: Number(t.purse_remaining)+Number(price) }).eq('id', teamId);
   }
-  toast('Retention removed — ₹'+Number(price).toFixed(2)+' Cr refunded', 'warn');
+  toast('Retention Removed', Number(price).toFixed(2) + ' Cr refunded to team', 'warn');
   await Promise.all([loadTeams(), loadPlayers(), renderRetentionView()]); updateStats();
 }
 // ─────────────────────────────────────────────────────────────
@@ -2249,7 +2304,7 @@ async function setPrevBFLTeam(playerId, teamName, selectEl) {
   selectEl.disabled = false;
 
   if (error) {
-    toast('Failed to update: ' + error.message, 'error');
+    toast('Update Failed', error.message, 'error');
     return;
   }
 
@@ -2272,9 +2327,11 @@ async function setPrevBFLTeam(playerId, teamName, selectEl) {
     }
   }
 
-  toast(teamName
-    ? `${teamName.split(' ').pop()} ← RTM assigned`
-    : 'RTM eligibility removed', teamName ? 'success' : 'warn');
+  toast(
+    teamName ? 'RTM Assigned' : 'RTM Removed',
+    teamName ? (teamName.split(' ').pop() + ' assigned RTM eligibility') : 'RTM eligibility cleared',
+    teamName ? 'success' : 'warn'
+  );
 
   // Also reload main player list if visible
   await loadPlayers();
