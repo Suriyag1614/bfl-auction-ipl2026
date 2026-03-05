@@ -62,7 +62,7 @@ function getIPLColors(code) {
 function getIPLLogoUrl(code) {
   if (!code) return null;
   const c = (code||'').trim().toUpperCase();
-  return `https://documents.iplt20.com/ipl/${c}/logos/LogoOutline/${c}outline.png`;
+  return `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png`;
 }
 function applyIPLCSSVars(el, code) {
   const colors = getIPLColors(code);
@@ -267,8 +267,20 @@ function renderLastResult(state) {
   const p = state.last_player;
   const sold = state.last_player_result === 'sold';
   const iplCode  = p?.ipl_team || '';
-  const logoUrl  = getIPLLogoUrl(iplCode);
-  const colors   = getIPLColors(iplCode);
+
+  // Use WINNING BFL TEAM color/logo (not player's IPL team)
+  // BFL team names match IPL codes (GT, MI, CSK etc) — extract from team name
+  const winningTeam = sold ? (state.last_sold_to_team || '') : '';
+  const winCode = (function(name) {
+    if (!name) return null;
+    const u = name.toUpperCase();
+    const m = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],
+               ['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],
+               ['ROYAL','RCB'],['LUCKNOW','LSG']].find(([k]) => u.includes(k));
+    return m ? m[1] : null;
+  })(winningTeam);
+  const colors   = sold ? (getIPLColors(winCode) || getIPLColors(iplCode)) : null;
+  const logoUrl  = sold ? getIPLLogoUrl(winCode) : null;
 
   const banner = document.createElement('div');
   banner.className = `last-result-banner ${sold ? 'sold-banner' : 'unsold-banner'}`;
@@ -280,7 +292,7 @@ function renderLastResult(state) {
 
   const logoHTML = (sold && logoUrl)
     ? `<img class="banner-ipl-logo" src="${logoUrl}"
-         onerror="this.style.display='none'" alt="${iplCode}" title="${iplCode}">`
+         onerror="this.style.display='none'" alt="${winningTeam}" title="${winningTeam}">`
     : '';
 
   banner.innerHTML = `
@@ -291,8 +303,8 @@ function renderLastResult(state) {
     <div style="flex:1;min-width:0;">
       <div class="lr-name">${p?.name||'Unknown'}</div>
       <div class="lr-detail">${p?.role||''}
-        ${iplCode ? `<span style="color:${sold&&colors?colors.primary:'var(--muted)'}; font-weight:700;"> · ${iplCode}</span>` : ''}
-        ${sold ? ` · Sold to <strong>${state.last_sold_to_team||'?'}</strong>` : ' · Unsold'}
+        ${iplCode ? `<span style="color:var(--muted);font-weight:700;"> · ${iplCode}</span>` : ''}
+        ${sold ? ` · Sold to <strong style="color:${colors?colors.primary:'inherit'}">${winningTeam||'?'}</strong>` : ' · Unsold'}
       </div>
     </div>
     <div class="lr-price ${sold?'lr-sold':'lr-unsold'}" ${sold&&colors?`style="color:${colors.primary};"`:''}>${sold ? fmt(state.last_sold_price) : 'UNSOLD'}</div>`;
@@ -580,40 +592,77 @@ async function renderSetInPlayerCard(state) {
 }
 
 function buildSlotCardHTML(slot) {
-  const p = slot.player || {};
+  const p      = slot.player || {};
   const isMe   = slot.current_highest_team_id === myTeam?.id;
   const hasBid = slot.current_highest_bid > 0;
-  const has2nd = slot.second_highest_bid > 0;
-  const next   = hasBid ? Number(slot.current_highest_bid)+0.25 : Number(p.base_price||0);
+  const next   = hasBid ? Number(slot.current_highest_bid) + 0.25 : Number(p.base_price || 0);
+  const colors  = getIPLColors(p.ipl_team);
+  const logoUrl = getIPLLogoUrl(p.ipl_team);
+
+  // IPL accent style
+  const accentStyle = colors
+    ? `border-color:${colors.primary}33;box-shadow:0 2px 12px ${colors.glow};`
+    : '';
+  const avatarBorder = colors ? `border:2px solid ${colors.primary};` : '';
+  const nameColor    = colors ? `color:${colors.primary};` : '';
+
+  // Tags
   let tags = '';
-  if (p.is_overseas) tags += '<span class="tag tag-overseas">OS</span>';
-  if (p.is_uncapped) tags += '<span class="tag tag-uncapped">UC</span>';
-  if (p.is_retained) tags += '<span class="tag tag-retained">RTN</span>';
+  if (p.is_overseas)                    tags += '<span class="tag tag-overseas">OS</span>';
+  if (p.is_uncapped)                    tags += '<span class="tag tag-uncapped">UC</span>';
+  if (p.is_retained)                    tags += '<span class="tag tag-retained">RTN</span>';
   if (p.is_rtm_eligible && !p.is_retained) tags += '<span class="tag tag-rtm">RTM</span>';
 
+  // Stats row (mirrors live single-player card)
+  const avg    = p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—';
+  const avgCls = p.bfl_avg > 100 ? 'good' : p.bfl_avg > 50 ? '' : p.bfl_avg ? 'warn' : '';
+  const roleShort = {'Batter':'BAT','Bowler':'BOWL','All-Rounder':'AR','Wicket-Keeper':'WK'}[p.role] || (p.role||'').substring(0,4) || '—';
+  const statsHTML = `<div class="slot-stats-row">
+    <div class="slot-stat"><div class="slot-stat-val ${avgCls}">${avg}</div><div class="slot-stat-lbl">BFL Avg</div></div>
+    <div class="slot-stat"><div class="slot-stat-val">${roleShort}</div><div class="slot-stat-lbl">Role</div></div>
+    <div class="slot-stat"><div class="slot-stat-val ${p.is_overseas?'warn':'good'}">${p.is_overseas?'🌍':'🇮🇳'}</div><div class="slot-stat-lbl">Origin</div></div>
+    <div class="slot-stat"><div class="slot-stat-val" style="${nameColor}">${p.ipl_team||'—'}</div><div class="slot-stat-lbl">IPL</div></div>
+  </div>`;
+
+  // IPL logo overlay
+  const logoHTML = logoUrl
+    ? `<img class="slot-ipl-logo" src="${logoUrl}" alt="${p.ipl_team||''}" onerror="this.style.display='none'">`
+    : '';
+
+  // Bid area
   const bidArea = isMe
     ? `<div class="set-slot-actions" id="sa-${slot.id}">
-         <div style="font-size:13px;color:var(--green);font-weight:700;flex:1;">✓ You: ${fmt(slot.current_highest_bid)}</div>
+         <div class="slot-winning-label">✓ You're leading</div>
+         <div class="slot-winning-amt">${fmt(slot.current_highest_bid)}</div>
          <button class="btn btn-ghost btn-sm" onclick="undoSetBid('${slot.id}')">↩ Undo</button>
        </div>`
     : `<div class="set-slot-actions" id="sa-${slot.id}">
          <input type="number" class="form-input" id="sbid-${slot.id}"
-           value="${next.toFixed(2)}" min="${next.toFixed(2)}" step="0.25">
+           value="${next.toFixed(2)}" min="${next.toFixed(2)}" step="0.25"
+           style="flex:1;min-width:0;">
          <button class="btn btn-gold btn-sm" onclick="placeSetBid('${slot.id}')">Bid</button>
        </div>`;
 
-  return `<div class="team-slot-card${isMe?' leading':''}" id="set-card-${slot.id}">
-    <div class="set-slot-header">
-      <img src="${imgSrc(p.image_url)}" onerror="this.onerror=null;this.src=window._SIL" alt="">
-      <div class="set-slot-info">
-        <div class="set-slot-name">${p.name||'?'}</div>
-        <div class="set-slot-meta">${p.role||''} · Base ${fmt(p.base_price)}</div>
-        ${tags ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">${tags}</div>` : ''}
+  return `<div class="team-slot-card${isMe?' leading':''}" id="set-card-${slot.id}"
+    style="${accentStyle}">
+    <div class="slot-card-top" style="position:relative;">
+      <img class="slot-avatar" src="${imgSrc(p.image_url)}"
+        onerror="this.onerror=null;this.src=window._SIL" alt=""
+        style="${avatarBorder}">
+      ${logoHTML}
+      <div class="slot-info">
+        <div class="slot-name">${p.name || '?'}</div>
+        <div class="slot-meta">
+          <span style="${nameColor}font-weight:700;">${p.ipl_team || '—'}</span>
+          · Base <strong>${fmt(p.base_price)}</strong>
+        </div>
+        ${tags ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;">${tags}</div>` : ''}
       </div>
     </div>
+    ${statsHTML}
     <div class="set-slot-bid" id="sb-${slot.id}">${buildSlotBidHTML(slot)}</div>
     ${bidArea}
-    <div id="serr-${slot.id}" class="error-msg" style="font-size:11px;min-height:0;"></div>
+    <div id="serr-${slot.id}" class="error-msg" style="font-size:11px;min-height:0;margin-top:2px;"></div>
   </div>`;
 }
 
@@ -621,13 +670,24 @@ function buildSlotBidHTML(slot) {
   const isMe   = slot.current_highest_team_id === myTeam?.id;
   const hasBid = slot.current_highest_bid > 0;
   const has2nd = slot.second_highest_bid > 0;
-  return `
-    <div class="set-slot-bid-label">Highest Bid</div>
-    <div class="set-slot-bid-val ${isMe?'bid-me':'bid-other'}">
-      ${hasBid ? fmt(slot.current_highest_bid) : '<span class="bid-none">No bids</span>'}
+  return `<div class="slot-bid-block">
+    <div class="slot-bid-row">
+      <div class="slot-bid-section">
+        <div class="slot-bid-lbl">Highest Bid</div>
+        <div class="slot-bid-val ${isMe?'bid-me':'bid-other'}">
+          ${hasBid ? fmt(slot.current_highest_bid) : '<span style="color:var(--muted);font-size:13px;">No bids</span>'}
+        </div>
+        ${hasBid ? `<div class="slot-bid-team ${isMe?'slot-bid-me':''}">${slot.highest_team?.team_name||''}${isMe?' 🟢':''}</div>` : ''}
+      </div>
+      <div class="slot-bid-section slot-bid-section-2nd">
+        <div class="slot-bid-lbl">2nd Highest</div>
+        <div class="slot-bid-val second">
+          ${has2nd ? fmt(slot.second_highest_bid) : '<span style="color:var(--muted);font-size:13px;">—</span>'}
+        </div>
+        ${has2nd ? `<div class="slot-bid-team">${slot.second_team?.team_name||'?'}</div>` : ''}
+      </div>
     </div>
-    ${hasBid ? `<div class="set-slot-bid-team">${slot.highest_team?.team_name||''}${isMe?' 🟢':''}</div>` : ''}
-    ${has2nd  ? `<div class="set-slot-bid-2nd">2nd: ${fmt(slot.second_highest_bid)} · ${slot.second_team?.team_name||'?'}</div>` : ''}`;
+  </div>`;
 }
 
 function patchSlotCard(slot) {

@@ -9,7 +9,7 @@
   <title>BFL Auction — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=28">
+  <link rel="stylesheet" href="css/styles.css?v=30">
 </head>
 <body>
 
@@ -252,6 +252,7 @@
                   <col style="width:110px;">
                   <col style="width:90px;">
                   <col style="width:70px;">
+                  <col style="width:44px;">
                   <col style="width:110px;">
                   <col style="min-width:140px;">
                   <col style="width:100px;">
@@ -261,7 +262,8 @@
                   <th onclick="sortBy('name')">Name</th>
                   <th onclick="sortBy('role')">Role</th>
                   <th onclick="sortBy('ipl_team')">IPL Team</th>
-                  <th onclick="sortBy('set_name')">Set</th>
+                  <th onclick="sortBy('set_no')" title="Set Number">Set #</th>
+                  <th onclick="sortBy('set_name')">Set Name</th>
                   <th onclick="sortBy('base_price')">Base</th>
                   <th>Tags</th><th>Status</th><th>Action</th>
                 </tr></thead>
@@ -283,13 +285,18 @@
           <!-- HISTORY -->
           <div class="tab-panel" id="tab-history">
             <div class="filters-bar">
-              <input class="form-input" type="text" id="history-search" placeholder="🔍 Player / team…" style="width:190px;" oninput="renderHistory()">
-              <select class="form-input" id="history-filter" style="width:130px;" onchange="renderHistory()">
+              <input class="form-input" type="text" id="history-search" placeholder="🔍 Player / team…" style="width:180px;" oninput="renderHistory()">
+              <select class="form-input" id="history-filter" style="width:110px;" onchange="renderHistory()">
                 <option value="">All</option><option value="sold">Sold</option><option value="unsold">Unsold</option>
               </select>
-              <select class="form-input" id="history-role" style="width:150px;" onchange="renderHistory()">
+              <select class="form-input" id="history-role" style="width:130px;" onchange="renderHistory()">
                 <option value="">All Roles</option><option>Batter</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
               </select>
+              <select class="form-input" id="history-set" style="width:120px;" onchange="renderHistory()">
+                <option value="">All Sets</option>
+              </select>
+              <input class="form-input" type="date" id="history-date" style="width:140px;" onchange="renderHistory()" title="Filter by auction date">
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px;" onclick="clearHistoryFilters()" title="Clear all filters">✕ Clear</button>
             </div>
             <div class="export-bar">
               <button class="btn-export csv" onclick="exportHistoryCSV()">⬇ History CSV</button>
@@ -307,6 +314,8 @@
                   <col style="width:120px;">
                   <col style="width:90px;">
                   <col style="width:70px;">
+                  <col style="width:44px;">
+                  <col style="width:110px;">
                   <col style="width:100px;">
                   <col style="width:50px;">
                 </colgroup>
@@ -318,6 +327,8 @@
                   <th data-hkey="sold_to"     onclick="sortHistory('sold_to')">Sold To</th>
                   <th data-hkey="sold_price"  onclick="sortHistory('sold_price')">Sold For</th>
                   <th data-hkey="status"      onclick="sortHistory('status')">Status</th>
+                  <th data-hkey="set_no"      onclick="sortHistory('set_no')">Set #</th>
+                  <th data-hkey="set_name"    onclick="sortHistory('set_name')">Set Name</th>
                   <th data-hkey="sold_at"     onclick="sortHistory('sold_at')">Time ↕</th>
                   <th>Undo</th>
                 </tr></thead>
@@ -378,10 +389,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=28"></script>
+<script src="js/localstorage-shim.js?v=30"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=28"></script>
-<script src="js/supabaseClient.js?v=28"></script>
-<script src="js/admin.js?v=28"></script>
+<script src="js/modal.js?v=30"></script>
+<script src="js/supabaseClient.js?v=30"></script>
+<script src="js/admin.js?v=30"></script>
 </body>
 </html>

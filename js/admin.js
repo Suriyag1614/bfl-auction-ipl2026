@@ -52,7 +52,7 @@ function getIPLColors(code) {
 function getIPLLogoUrl(code) {
   if (!code) return null;
   const c = (code||'').trim().toUpperCase();
-  return `https://documents.iplt20.com/ipl/${c}/logos/LogoOutline/${c}outline.png`;
+  return `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png`;
 }
 
 const el  = id => document.getElementById(id);
@@ -227,7 +227,7 @@ function renderPlayerList() {
   });
 
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">No players found</td></tr>'; return;
+    tbody.innerHTML = '<tr><td colspan="11" class="empty-cell">No players found</td></tr>'; return;
   }
 
   tbody.innerHTML = list.map(p => {
@@ -269,6 +269,7 @@ function renderPlayerList() {
       <td style="max-width:150px;overflow:hidden;"><strong style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">${p.name}</strong></td>
       <td style="white-space:nowrap;font-size:13px;">${p.role}</td>
       <td style="white-space:nowrap;font-size:12px;color:var(--muted);">${p.ipl_team||'—'}</td>
+      <td style="white-space:nowrap;font-size:12px;color:var(--muted);text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:700;">${p.set_no||'—'}</td>
       <td style="white-space:nowrap;font-size:11px;color:var(--muted);">${p.set_name||'—'}</td>
       <td style="white-space:nowrap;">₹${p.base_price}</td>
       <td style="white-space:nowrap;">${tags || '<span style="color:var(--muted);font-size:11px;">—</span>'}</td>
@@ -479,6 +480,11 @@ async function resetDay() {
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
   toast(`Day ${today} reset — ${data.players_cleared} players cleared, ₹${Number(data.purse_refunded||0).toFixed(2)} Cr refunded`, 'warn');
+  // Clear the last result banner
+  await sb.from('auction_state').update({
+    last_player_id: null, last_player_result: null,
+    last_sold_price: null, last_sold_to_team: null
+  }).eq('id', 1);
   await Promise.all([loadPlayers(), loadTeams(), loadAuctionState(), loadHistory()]);
   await updateStats();
 }
@@ -504,6 +510,11 @@ async function undoSale() {
   const { data, error } = await sb.rpc('undo_last_sale');
   if (error) return showError(error.message);
   if (!data.success) return showError(data.error);
+  // Clear the last result banner in auction_state so teams see a blank state
+  await sb.from('auction_state').update({
+    last_player_id: null, last_player_result: null,
+    last_sold_price: null, last_sold_to_team: null
+  }).eq('id', 1);
   toast('↩ Sale undone', 'warn');
   await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]); await updateStats();
 }
@@ -530,6 +541,11 @@ async function undoSaleByPlayer(playerName, teamName, price) {
   } else {
     toast(`↩ Sale of ${playerName} undone`, 'warn');
   }
+  // Clear the last result banner
+  await sb.from('auction_state').update({
+    last_player_id: null, last_player_result: null,
+    last_sold_price: null, last_sold_to_team: null
+  }).eq('id', 1);
   await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]); await updateStats();
 }
 
@@ -539,6 +555,13 @@ async function undoUnsold(playerId) {
   const { data, error } = await sb.rpc('undo_mark_unsold', { p_player_id: playerId });
   if (error) return showError(error.message);
   if (!data.success) return showError(data.error);
+  // If the unsold banner is showing this player, clear it
+  if (currentState?.last_player_id === playerId && currentState?.last_player_result === 'unsold') {
+    await sb.from('auction_state').update({
+      last_player_id: null, last_player_result: null,
+      last_sold_price: null, last_sold_to_team: null
+    }).eq('id', 1);
+  }
   toast('↩ Cleared', 'info');
   unsoldIds.delete(playerId); delete unsoldLogMap[playerId];
   renderPlayerList(); await updateStats(); await loadHistory();
@@ -556,7 +579,7 @@ async function toggleAutopilot() {
     ? 'Enable Autopilot?\n\nServer auto-sells when timer expires, even if you are logged out.'
     : 'Disable Autopilot?\n\nYou must manually click Force Sell after timer expires.';
   if (!await confirm2(msg, { title:'Autopilot', icon:'🤖' })) return;
-  const { data, error } = await sb.rpc('set_autopilot', { enabled: newVal });
+  const { error } = await sb.rpc('set_autopilot', { enabled: newVal });
   if (error) return showError(error.message);
   autopilotEnabled = newVal;
   renderAutopilotBtn();
@@ -986,7 +1009,7 @@ async function updateStats() {
 async function loadHistory() {
   await safeLoad(async () => {
     const { data: sold, error: se } = await sb.from('team_players')
-      .select('player_id,sold_price,sold_at,team_id,is_retained,is_rtm,team:teams(team_name),player:players_master(name,role,ipl_team,base_price,is_overseas,is_uncapped)');
+      .select('player_id,sold_price,sold_at,team_id,is_retained,is_rtm,team:teams(team_name),player:players_master(name,role,ipl_team,base_price,is_overseas,is_uncapped,set_no,set_name)');
     if (se) throw new Error(se.message);
 
     const soldEntries = (sold||[]).map(r => ({
@@ -996,6 +1019,8 @@ async function loadHistory() {
       base_price:  Number(r.player?.base_price||0),
       is_overseas: r.player?.is_overseas||false,
       is_uncapped: r.player?.is_uncapped||false,
+      set_no:      r.player?.set_no  || '—',
+      set_name:    r.player?.set_name|| '—',
       sold_to:     r.team?.team_name || '?',
       team_id:     r.team_id,
       sold_price:  r.sold_price,
@@ -1006,7 +1031,7 @@ async function loadHistory() {
     }));
 
     const { data: ul } = await sb.from('unsold_log')
-      .select('player_id,logged_at,player:players_master(name,role,ipl_team,base_price,is_overseas,is_uncapped)');
+      .select('player_id,logged_at,player:players_master(name,role,ipl_team,base_price,is_overseas,is_uncapped,set_no,set_name)');
     const unsoldEntries = (ul||[]).map(r => ({
       player_name: r.player?.name    || '?',
       role:        r.player?.role    || '?',
@@ -1014,6 +1039,8 @@ async function loadHistory() {
       base_price:  Number(r.player?.base_price||0),
       is_overseas: r.player?.is_overseas||false,
       is_uncapped: r.player?.is_uncapped||false,
+      set_no:      r.player?.set_no  || '—',
+      set_name:    r.player?.set_name|| '—',
       sold_to:'—', team_id:null, sold_price:null,
       sold_at: r.logged_at, status:'unsold', player_id: r.player_id,
     }));
@@ -1027,18 +1054,43 @@ async function loadHistory() {
   }, 'loadHistory');
 }
 
+function clearHistoryFilters() {
+  const ids = ['history-search','history-filter','history-role','history-set','history-date'];
+  ids.forEach(id => { const e = el(id); if (e) e.value = ''; });
+  renderHistory();
+}
+
+function _populateHistorySetFilter() {
+  const sel = el('history-set'); if (!sel) return;
+  const cur = sel.value;
+  const sets = [...new Set(auctionHistory.map(r => r.set_name).filter(s => s && s !== '—'))].sort();
+  sel.innerHTML = '<option value="">All Sets</option>' +
+    sets.map(s => `<option value="${s}">${s}</option>`).join('');
+  if (cur) sel.value = cur;
+}
+
 function renderHistory() {
+  _populateHistorySetFilter();
   const q    = (el('history-search')?.value  || '').toLowerCase();
   const fil  =  el('history-filter')?.value  || '';
   const rolF =  el('history-role')?.value    || '';
+  const setF =  el('history-set')?.value     || '';
+  const datF =  el('history-date')?.value    || '';  // YYYY-MM-DD
   const tbody = el('history-tbody');
 
   let list = auctionHistory.filter(r => {
-    if (fil  && r.status !== fil)  return false;
-    if (rolF && r.role   !== rolF) return false;
+    if (fil  && r.status   !== fil)  return false;
+    if (rolF && r.role     !== rolF) return false;
+    if (setF && r.set_name !== setF) return false;
+    if (datF && r.sold_at) {
+      // Compare date portion only in local time
+      const rowDate = new Date(r.sold_at).toLocaleDateString('en-CA'); // YYYY-MM-DD
+      if (rowDate !== datF) return false;
+    }
     if (q && !r.player_name.toLowerCase().includes(q) &&
              !(r.sold_to||'').toLowerCase().includes(q) &&
-             !(r.ipl_team||'').toLowerCase().includes(q)) return false;
+             !(r.ipl_team||'').toLowerCase().includes(q) &&
+             !(r.set_name||'').toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -1055,7 +1107,7 @@ function renderHistory() {
     if (th.dataset.hkey === hSortKey) th.classList.add('sort-' + hSortDir);
   });
 
-  if (!list.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">No records yet</td></tr>'; return; }
+  if (!list.length) { tbody.innerHTML = '<tr><td colspan="11" class="empty-cell">No records yet</td></tr>'; return; }
 
   tbody.innerHTML = list.map(r => {
     const ts = r.sold_at ? new Date(r.sold_at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
@@ -1076,6 +1128,8 @@ function renderHistory() {
       <td style="white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis;">${r.sold_to}</td>
       <td style="white-space:nowrap;color:var(--gold);font-weight:700;">${r.sold_price!=null?fmt(r.sold_price):'—'}</td>
       <td style="white-space:nowrap;">${r.status==='sold'?'<span class="tag tag-sold">Sold</span>':'<span class="tag tag-unsold">Unsold</span>'}</td>
+      <td style="font-size:12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;text-align:center;white-space:nowrap;">${r.set_no||'—'}</td>
+      <td style="font-size:12px;color:var(--muted);white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis;">${r.set_name||'—'}</td>
       <td style="font-size:12px;color:var(--muted);white-space:nowrap;">${ts}</td>
       <td>${undoBtn}</td>
     </tr>`;
@@ -1188,7 +1242,7 @@ function exportHistoryPDF() {
       </table>
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
-    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
+    const w = window.open('','_blank'); if (w) { const doc = w.document; doc.open(); doc.write(html); doc.close(); }
     toast('📄 History PDF opened','success');
   } catch(e) { toast('PDF failed','error'); }
 }
@@ -1258,7 +1312,7 @@ async function exportAllSquadsPDF() {
       ${sections}
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
-    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
+    const w = window.open('','_blank'); if (w) { const doc = w.document; doc.open(); doc.write(html); doc.close(); }
     toast('📄 All Squads PDF opened','success');
   } catch(e) { toast('PDF failed: '+e.message,'error'); console.error(e); }
 }
@@ -1347,7 +1401,7 @@ async function exportTeamSquadPDF() {
       <tbody>${rows_html}</tbody></table>
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
-    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
+    const w = window.open('','_blank'); if (w) { const doc = w.document; doc.open(); doc.write(html); doc.close(); }
     toast('📄 Squad PDF opened','success');
   } catch(e) { toast('PDF failed','error'); }
 }
@@ -2170,5 +2224,3 @@ async function setPrevBFLTeam(playerId, teamName, selectEl) {
   await loadPlayers();
 }
 
-// Hook into switchTab to lazy-load RTM setup
-const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;
