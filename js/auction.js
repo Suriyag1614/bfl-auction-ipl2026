@@ -22,13 +22,18 @@ let _squadLoading    = false;
 let _teamsCache      = [];
 let _rtmAlerted      = false;
 let _lastSquadData   = [];
+let _wasLeading      = false;  // track lead state for outbid alert
 let _connState       = 'connected';
+let _prevPurse       = null;  // for purse delta display
 let _reconnectTimer  = null;
 let _reconnectCount  = 0;
 let _bidTs           = 0;
 
 const SIL = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23111520' rx='40'/%3E%3Ccircle cx='40' cy='28' r='14' fill='%2364748b'/%3E%3Cellipse cx='40' cy='70' rx='22' ry='18' fill='%2364748b'/%3E%3C/svg%3E";
 window._SIL = SIL;
+
+const dbt = (key, fn, ms=400) => { clearTimeout(_dbt[key]); _dbt[key] = setTimeout(fn, ms); };
+const _dbt = {};
 
 const el     = id => document.getElementById(id);
 const show   = id => { const e=el(id); if(e) e.style.display=''; };
@@ -64,6 +69,17 @@ function getIPLLogoUrl(code) {
   const c = (code||'').trim().toUpperCase();
   return `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png`;
 }
+
+// IPL 25 Fantasy Avg tier helper (max observed ~154)
+function avgTier(v) {
+  if (!v) return { cls:'', label:'—', color:'var(--muted)' };
+  const n = Number(v);
+  if (n >= 120) return { cls:'avg-elite',  label:n.toFixed(1), color:'#fbbf24', badge:'Elite' };
+  if (n >=  90) return { cls:'avg-good',   label:n.toFixed(1), color:'var(--green)', badge:'Good' };
+  if (n >=  60) return { cls:'avg-fair',   label:n.toFixed(1), color:'#60a5fa', badge:'Fair' };
+  return         { cls:'avg-weak',   label:n.toFixed(1), color:'#94a3b8', badge:'Weak' };
+}
+
 function applyIPLCSSVars(el, code) {
   const colors = getIPLColors(code);
   if (!colors) {
@@ -88,6 +104,21 @@ function playRTMAlert() {
       g.gain.setValueAtTime(0.35, ctx.currentTime + t);
       g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.25);
       o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.25);
+    });
+  } catch(e) {}
+}
+
+function playOutbidAlert() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Two descending tones — "you lost it" feel
+    [[400, 0], [300, 0.18]].forEach(([freq, t]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.3, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.3);
+      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.35);
     });
   } catch(e) {}
 }
@@ -119,7 +150,7 @@ async function init() {
 
 function revealUI() {
   hide('auction-skeleton'); hide('stats-skeleton'); hide('squad-skeleton');
-  show('stats-real'); show('squad-table-wrap');
+  show('stats-real'); show('squad-table-wrap'); show('role-pool-wrap');
   const tn = el('team-name'); if (tn) tn.textContent = myTeam.team_name;
   updatePurseDisplay();
   if (myTeam.is_advantage_holder) show('advantage-badge');
@@ -134,18 +165,27 @@ function updateRTMBadge() {
 function updatePurseDisplay() {
   const pd = el('purse-display');
   if (pd) {
-    pd.textContent = fmt(myTeam.purse_remaining);
+    const purse = Number(myTeam.purse_remaining);
+    const delta = _prevPurse !== null ? purse - _prevPurse : 0;
+    _prevPurse = purse;
+    // Show delta badge briefly
+    if (delta < -0.001) {
+      const badge = document.createElement('span');
+      badge.className = 'purse-delta';
+      badge.textContent = '−₹' + Math.abs(delta).toFixed(2);
+      pd.parentNode?.appendChild(badge);
+      setTimeout(() => badge.remove(), 2200);
+    }
+    pd.textContent = fmt(purse);
     pd.classList.add('purse-updated');
     setTimeout(() => pd.classList.remove('purse-updated'), 500);
-    // Colour warning: ≤5 Cr = critical (red blink), ≤10 Cr = low (red), else gold
-    const purse = Number(myTeam.purse_remaining);
     pd.classList.toggle('purse-critical', purse <= 5);
     pd.classList.toggle('purse-low',      purse > 5 && purse <= 10);
   }
 }
 
 // ── Polling ───────────────────────────────────────────────────
-function startPolling() { stopPolling(); pollInterval = setInterval(fetchState, 2000); }
+function startPolling() { stopPolling(); pollInterval = setInterval(fetchState, 2500); }
 function stopPolling()  { clearInterval(pollInterval); pollInterval = null; }
 
 // ── Core state fetch ──────────────────────────────────────────
@@ -221,6 +261,7 @@ async function applyState(state) {
   } else if ((state.status === 'live' || state.status === 'paused') && state.current_player) {
     stopSetTimer(); stopRTMTimer();
     _rtmAlerted = false;
+    if (state.current_player_id !== currentState?._prevPlayerId) { _wasLeading = false; }
     hide('set-auction-view'); hide('no-auction'); hide('rtm-pending');
     renderLivePlayer(state, state.status === 'paused');
     if (state.current_player_id) loadBidHistory(state.current_player_id);
@@ -351,7 +392,7 @@ function renderLivePlayer(state, paused) {
           <div class="bid-stat"><div class="bid-stat-label">2nd Highest</div><div class="bid-stat-value second" id="second-bid">—</div><div class="bid-stat-sub" id="second-team">—</div></div>
         </div>
         <div class="bid-row">
-          <input class="form-input" type="number" id="bid-input" placeholder="Amount (Cr)" step="0.25" min="0.5">
+          <input class="form-input" type="number" id="bid-input" placeholder="Amount (Cr)" step="0.25" min="0.5" inputmode="decimal">
           <button class="btn btn-gold" id="bid-btn" onclick="placeBid()">Bid</button>
           <button class="btn btn-ghost" id="undo-bid-btn" onclick="undoBid()" style="display:none;">↩ Undo</button>
         </div>
@@ -412,11 +453,10 @@ function renderLivePlayer(state, paused) {
   // Stats grid — 4 meaningful stats, no duplicates with meta row above
   const statsGrid = el('adv-stats-grid');
   if (statsGrid) {
-    const avg = p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—';
-    const avgCls = p.bfl_avg > 100 ? 'good' : p.bfl_avg > 50 ? '' : p.bfl_avg ? 'warn' : '';
+    const tier = avgTier(p.bfl_avg);
     const roleShort = { 'Batter':'BAT', 'Bowler':'BOWL', 'All-Rounder':'AR', 'Wicket-Keeper':'WK' }[p.role] || p.role?.substring(0,4) || '—';
     statsGrid.innerHTML = [
-      { val: avg,                              cls: avgCls,                           icon:'📊', lbl: 'BFL Avg' },
+      { val: tier.label, cls: tier.cls, icon:'📊', lbl: 'IPL 25 Avg' },
       { val: roleShort,                        cls: '',                               icon:'🎭', lbl: 'Role' },
       { val: p.is_overseas ? '🌍 OS' : '🇮🇳 IND', cls: p.is_overseas ? 'warn' : 'good', icon:'', lbl: 'Origin' },
       { val: p.is_uncapped ? 'UNCAP' : 'CAP',  cls: p.is_uncapped ? 'good' : '',     icon:'🎖', lbl: 'Status' },
@@ -435,6 +475,12 @@ function renderLivePlayer(state, paused) {
       ? state.highest_team.team_name + (isMe ? ' 🟢 (You)' : '') : '—';
     leadEl.style.color = isMe ? 'var(--green)' : '';
   }
+  // Outbid alert: fire when you lose the lead
+  if (_wasLeading && !isMe && hasBid) {
+    toast('🔴 You were outbid! ' + fmt(state.current_highest_bid) + ' by ' + (state.highest_team?.team_name||'?'), 'warn');
+    playOutbidAlert();
+  }
+  _wasLeading = isMe;
   el('second-bid').textContent  = state.second_highest_bid > 0 ? fmt(state.second_highest_bid) : '—';
   el('second-team').textContent = state.second_team?.team_name || '—';
 
@@ -455,16 +501,38 @@ function renderLivePlayer(state, paused) {
   // Guard: squad full or OS limit reached
   const mySquadCount = _lastSquadData.length;
   const myOSCount    = _lastSquadData.filter(r => r.player?.is_overseas).length;
+  const slotsLeft    = 12 - mySquadCount;
   const squadFull    = mySquadCount >= 12;
   const osBlocked    = p.is_overseas && myOSCount >= 4;
-  const bidBlocked   = squadFull || osBlocked;
+
+  // Role-limit check: can squad be legally completed if we skip this role?
+  // Count remaining available players per role to warn if role gap unfillable
+  let roleBlocked = false, roleBlockMsg = '';
+  if (!squadFull && slotsLeft > 0) {
+    const roleCounts = {};
+    _lastSquadData.forEach(r => { if (r.player?.role) roleCounts[r.player.role] = (roleCounts[r.player.role]||0)+1; });
+    const needed = {
+      'Wicket-Keeper': Math.max(0, 1 - (roleCounts['Wicket-Keeper']||0)),
+      'Batter':        Math.max(0, 2 - (roleCounts['Batter']||0)),
+      'Bowler':        Math.max(0, 3 - (roleCounts['Bowler']||0)),
+      'All-Rounder':   Math.max(0, 2 - (roleCounts['All-Rounder']||0)),
+    };
+    const totalNeeded = Object.values(needed).reduce((a,b)=>a+b,0);
+    // If bidding on this player would leave too few slots for mandatory roles
+    if (p.role && needed[p.role] === 0 && totalNeeded >= slotsLeft) {
+      roleBlocked = true;
+      roleBlockMsg = `Role cap: need ${totalNeeded} mandatory role(s) in ${slotsLeft} slot(s) left`;
+    }
+  }
+
+  const bidBlocked = squadFull || osBlocked || roleBlocked;
 
   const errEl = el('bid-error');
   if (bidBlocked && errEl) {
-    errEl.textContent = squadFull
-      ? `Squad full (${mySquadCount}/12) — cannot bid`
-      : `Overseas limit reached (${myOSCount}/4) — cannot bid on overseas players`;
-  } else if (errEl && (errEl.textContent.includes('Squad full') || errEl.textContent.includes('Overseas limit'))) {
+    errEl.textContent = squadFull ? `Squad full (${mySquadCount}/12) — cannot bid`
+      : osBlocked ? `Overseas limit (${myOSCount}/4) — cannot bid on overseas players`
+      : roleBlockMsg;
+  } else if (errEl && (errEl.textContent.includes('Squad full') || errEl.textContent.includes('Overseas') || errEl.textContent.includes('Role cap'))) {
     errEl.textContent = '';
   }
 
@@ -527,15 +595,40 @@ function renderRTMPending(state) {
       </div>
       ${isRTMTeam ? `
         <div class="rtm-actions">
-          <button class="btn btn-gold" onclick="exerciseRTM(true)">✓ Exercise RTM — Match ${price}</button>
+          <button class="btn btn-gold rtm-hold-btn" id="rtm-accept-btn"
+            onmousedown="startRTMHold(true)" ontouchstart="startRTMHold(true)"
+            onmouseup="cancelRTMHold()" ontouchend="cancelRTMHold()"
+            onmouseleave="cancelRTMHold()">
+            <span class="rtm-hold-fill" id="rtm-hold-fill"></span>
+            ✓ Exercise RTM — Match ${price}
+          </button>
           <button class="btn btn-ghost" onclick="exerciseRTM(false)">✗ Decline RTM</button>
-        </div>` : ''}
+        </div>
+        <div class="rtm-hold-hint">Hold button for 2s to confirm RTM</div>` : ''}
     </div>`;
 
   if (deadlineMs) startRTMTimer(deadlineMs);
 }
 
 let _rtmInFlight = false;
+let _rtmHoldTimer = null;
+
+function startRTMHold(accept) {
+  const fill = document.getElementById('rtm-hold-fill');
+  const btn  = document.getElementById('rtm-accept-btn');
+  if (!fill || !btn) { exerciseRTM(accept); return; }
+  btn.classList.add('holding');
+  _rtmHoldTimer = setTimeout(() => {
+    btn.classList.remove('holding');
+    exerciseRTM(accept);
+  }, 1800);
+}
+function cancelRTMHold() {
+  clearTimeout(_rtmHoldTimer);
+  const btn = document.getElementById('rtm-accept-btn');
+  if (btn) btn.classList.remove('holding');
+}
+
 async function exerciseRTM(accept) {
   if (_rtmInFlight) return;
   _rtmInFlight = true;
@@ -599,70 +692,86 @@ function buildSlotCardHTML(slot) {
   const colors  = getIPLColors(p.ipl_team);
   const logoUrl = getIPLLogoUrl(p.ipl_team);
 
-  // IPL accent style
-  const accentStyle = colors
-    ? `border-color:${colors.primary}33;box-shadow:0 2px 12px ${colors.glow};`
-    : '';
-  const avatarBorder = colors ? `border:2px solid ${colors.primary};` : '';
-  const nameColor    = colors ? `color:${colors.primary};` : '';
+  const primary  = colors ? colors.primary   : '#f0b429';
+  const glow     = colors ? colors.glow      : 'rgba(240,180,41,0.25)';
+  const secondary= colors ? colors.secondary : '#1a1a2e';
 
   // Tags
-  let tags = '';
-  if (p.is_overseas)                    tags += '<span class="tag tag-overseas">OS</span>';
-  if (p.is_uncapped)                    tags += '<span class="tag tag-uncapped">UC</span>';
-  if (p.is_retained)                    tags += '<span class="tag tag-retained">RTN</span>';
-  if (p.is_rtm_eligible && !p.is_retained) tags += '<span class="tag tag-rtm">RTM</span>';
+  let tagParts = [];
+  if (p.is_overseas)               tagParts.push('<span class="tag tag-overseas">OS</span>');
+  if (p.is_uncapped)               tagParts.push('<span class="tag tag-uncapped">UC</span>');
+  if (p.is_retained)               tagParts.push('<span class="tag tag-retained">RTN</span>');
+  if (p.is_rtm_eligible && !p.is_retained) tagParts.push('<span class="tag tag-rtm">RTM</span>');
+  const tags = tagParts.join('');
 
-  // Stats row (mirrors live single-player card)
-  const avg    = p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—';
-  const avgCls = p.bfl_avg > 100 ? 'good' : p.bfl_avg > 50 ? '' : p.bfl_avg ? 'warn' : '';
-  const roleShort = {'Batter':'BAT','Bowler':'BOWL','All-Rounder':'AR','Wicket-Keeper':'WK'}[p.role] || (p.role||'').substring(0,4) || '—';
-  const statsHTML = `<div class="slot-stats-row">
-    <div class="slot-stat"><div class="slot-stat-val ${avgCls}">${avg}</div><div class="slot-stat-lbl">BFL Avg</div></div>
-    <div class="slot-stat"><div class="slot-stat-val">${roleShort}</div><div class="slot-stat-lbl">Role</div></div>
-    <div class="slot-stat"><div class="slot-stat-val ${p.is_overseas?'warn':'good'}">${p.is_overseas?'🌍':'🇮🇳'}</div><div class="slot-stat-lbl">Origin</div></div>
-    <div class="slot-stat"><div class="slot-stat-val" style="${nameColor}">${p.ipl_team||'—'}</div><div class="slot-stat-lbl">IPL</div></div>
-  </div>`;
-
-  // IPL logo overlay
-  const logoHTML = logoUrl
-    ? `<img class="slot-ipl-logo" src="${logoUrl}" alt="${p.ipl_team||''}" onerror="this.style.display='none'">`
-    : '';
+  const _t      = avgTier(p.bfl_avg);
+  const avg     = _t.label;
+  const avgColor = _t.color;
+  const roleShort = {'Batter':'BAT','Bowler':'BOWL','All-Rounder':'AR','Wicket-Keeper':'WK'}[p.role] || (p.role||'—').substring(0,3);
+  const origin  = p.is_overseas ? '🌍' : '🇮🇳';
 
   // Bid area
   const bidArea = isMe
-    ? `<div class="set-slot-actions" id="sa-${slot.id}">
-         <div class="slot-winning-label">✓ You're leading</div>
-         <div class="slot-winning-amt">${fmt(slot.current_highest_bid)}</div>
-         <button class="btn btn-ghost btn-sm" onclick="undoSetBid('${slot.id}')">↩ Undo</button>
+    ? `<div class="sc-bid-action" id="sa-${slot.id}">
+         <div class="sc-winning">
+           <span class="sc-winning-icon">✓</span>
+           <span class="sc-winning-label">Leading</span>
+           <span class="sc-winning-amt">${fmt(slot.current_highest_bid)}</span>
+         </div>
+         <button class="btn btn-ghost btn-sm sc-undo-btn" onclick="undoSetBid('${slot.id}')">↩</button>
        </div>`
-    : `<div class="set-slot-actions" id="sa-${slot.id}">
-         <input type="number" class="form-input" id="sbid-${slot.id}"
-           value="${next.toFixed(2)}" min="${next.toFixed(2)}" step="0.25"
-           style="flex:1;min-width:0;">
-         <button class="btn btn-gold btn-sm" onclick="placeSetBid('${slot.id}')">Bid</button>
+    : `<div class="sc-bid-action" id="sa-${slot.id}">
+         <input type="number" class="form-input sc-bid-input" id="sbid-${slot.id}"
+           value="${next.toFixed(2)}" min="${next.toFixed(2)}" step="0.25" inputmode="decimal">
+         <button class="btn btn-gold btn-sm sc-bid-btn" onclick="placeSetBid('${slot.id}')">Bid</button>
        </div>`;
 
-  return `<div class="team-slot-card${isMe?' leading':''}" id="set-card-${slot.id}"
-    style="${accentStyle}">
-    <div class="slot-card-top" style="position:relative;">
-      <img class="slot-avatar" src="${imgSrc(p.image_url)}"
-        onerror="this.onerror=null;this.src=window._SIL" alt=""
-        style="${avatarBorder}">
-      ${logoHTML}
-      <div class="slot-info">
-        <div class="slot-name">${p.name || '?'}</div>
-        <div class="slot-meta">
-          <span style="${nameColor}font-weight:700;">${p.ipl_team || '—'}</span>
-          · Base <strong>${fmt(p.base_price)}</strong>
-        </div>
-        ${tags ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;">${tags}</div>` : ''}
+  return `<div class="sc-card${isMe?' sc-leading':''}" id="set-card-${slot.id}"
+    style="--sc-primary:${primary};--sc-glow:${glow};--sc-secondary:${secondary};">
+
+    <!-- Coloured top band -->
+    <div class="sc-band"></div>
+
+    <!-- Header: avatar + name block -->
+    <div class="sc-header">
+      <div class="sc-avatar-wrap">
+        <img class="sc-avatar" src="${imgSrc(p.image_url)}"
+          onerror="this.onerror=null;this.src=window._SIL" alt="">
+        ${logoUrl ? `<img class="sc-team-logo" src="${logoUrl}"
+          onerror="this.style.display='none'" alt="${p.ipl_team||''}">` : ''}
+      </div>
+      <div class="sc-identity">
+        <div class="sc-name">${p.name || '?'}</div>
+        <div class="sc-sub" style="color:${primary};">${p.ipl_team || '—'} · Base ${fmt(p.base_price)}</div>
+        ${tags ? `<div class="sc-tags">${tags}</div>` : ''}
       </div>
     </div>
-    ${statsHTML}
-    <div class="set-slot-bid" id="sb-${slot.id}">${buildSlotBidHTML(slot)}</div>
+
+    <!-- Stats strip: BFL Avg · Role · Origin -->
+    <div class="sc-stats">
+      <div class="sc-stat">
+        <span class="sc-stat-val" style="color:${avgColor};">${avg}</span>
+        <span class="sc-stat-lbl">IPL 25 Avg</span>
+      </div>
+      <div class="sc-stat-div"></div>
+      <div class="sc-stat">
+        <span class="sc-stat-val">${roleShort}</span>
+        <span class="sc-stat-lbl">Role</span>
+      </div>
+      <div class="sc-stat-div"></div>
+      <div class="sc-stat">
+        <span class="sc-stat-val">${origin}</span>
+        <span class="sc-stat-lbl">Origin</span>
+      </div>
+    </div>
+
+    <!-- Bid display -->
+    <div class="sc-bids" id="sb-${slot.id}">${buildSlotBidHTML(slot)}</div>
+
+    <!-- Bid action -->
     ${bidArea}
-    <div id="serr-${slot.id}" class="error-msg" style="font-size:11px;min-height:0;margin-top:2px;"></div>
+
+    <div id="serr-${slot.id}" class="error-msg" style="font-size:11px;min-height:0;margin-top:3px;"></div>
   </div>`;
 }
 
@@ -670,22 +779,21 @@ function buildSlotBidHTML(slot) {
   const isMe   = slot.current_highest_team_id === myTeam?.id;
   const hasBid = slot.current_highest_bid > 0;
   const has2nd = slot.second_highest_bid > 0;
-  return `<div class="slot-bid-block">
-    <div class="slot-bid-row">
-      <div class="slot-bid-section">
-        <div class="slot-bid-lbl">Highest Bid</div>
-        <div class="slot-bid-val ${isMe?'bid-me':'bid-other'}">
-          ${hasBid ? fmt(slot.current_highest_bid) : '<span style="color:var(--muted);font-size:13px;">No bids</span>'}
-        </div>
-        ${hasBid ? `<div class="slot-bid-team ${isMe?'slot-bid-me':''}">${slot.highest_team?.team_name||''}${isMe?' 🟢':''}</div>` : ''}
+  return `<div class="sc-bid-row">
+    <div class="sc-bid-col">
+      <div class="sc-bid-lbl">Highest</div>
+      <div class="sc-bid-amt${isMe?' sc-bid-me':hasBid?' sc-bid-other':''}">
+        ${hasBid ? fmt(slot.current_highest_bid) : '<span class="sc-no-bid">—</span>'}
       </div>
-      <div class="slot-bid-section slot-bid-section-2nd">
-        <div class="slot-bid-lbl">2nd Highest</div>
-        <div class="slot-bid-val second">
-          ${has2nd ? fmt(slot.second_highest_bid) : '<span style="color:var(--muted);font-size:13px;">—</span>'}
-        </div>
-        ${has2nd ? `<div class="slot-bid-team">${slot.second_team?.team_name||'?'}</div>` : ''}
+      <div class="sc-bid-team">${hasBid ? (slot.highest_team?.team_name||'')+(isMe?' 🟢':'') : ''}</div>
+    </div>
+    <div class="sc-bid-sep"></div>
+    <div class="sc-bid-col">
+      <div class="sc-bid-lbl">2nd</div>
+      <div class="sc-bid-amt sc-bid-2nd">
+        ${has2nd ? fmt(slot.second_highest_bid) : '<span class="sc-no-bid">—</span>'}
       </div>
+      <div class="sc-bid-team">${has2nd ? slot.second_team?.team_name||'' : ''}</div>
     </div>
   </div>`;
 }
@@ -695,19 +803,26 @@ function patchSlotCard(slot) {
   const hasBid = slot.current_highest_bid > 0;
   const next   = hasBid ? Number(slot.current_highest_bid)+0.25 : Number(slot.player?.base_price||0);
   const card = document.getElementById('set-card-'+slot.id); if (!card) return;
-  card.className = 'team-slot-card' + (isMe ? ' leading' : '');
+  // Show "WON" state if set is closed (status != live)
+  if (slot.status === 'closed' || slot.status === 'sold') {
+    card.className = 'sc-card' + (isMe ? ' sc-won' : '');
+    if (isMe) {
+      let wonBadge = card.querySelector('.sc-won-badge');
+      if (!wonBadge) { wonBadge = document.createElement('div'); wonBadge.className='sc-won-badge'; card.appendChild(wonBadge); }
+      wonBadge.textContent = '✓ WON — ' + (hasBid ? '₹'+Number(slot.current_highest_bid).toFixed(2)+' Cr' : '');
+    }
+    return;
+  }
+  card.className = 'sc-card' + (isMe ? ' sc-leading' : '');
   const bidDiv = document.getElementById('sb-'+slot.id);
   if (bidDiv) bidDiv.innerHTML = buildSlotBidHTML(slot);
   const sa = document.getElementById('sa-'+slot.id);
   if (sa) {
     const hasInput = !!document.getElementById('sbid-'+slot.id);
     if (isMe && hasInput) {
-      sa.innerHTML = `<div style="font-size:13px;color:var(--green);font-weight:700;flex:1;">✓ You: ${fmt(slot.current_highest_bid)}</div>
-        <button class="btn btn-ghost btn-sm" onclick="undoSetBid('${slot.id}')">↩ Undo</button>`;
+      sa.innerHTML = `<div class="sc-bid-action"><div class="sc-winning"><span class="sc-winning-icon">✓</span><span class="sc-winning-label">Leading</span><span class="sc-winning-amt">${fmt(slot.current_highest_bid)}</span></div><button class="btn btn-ghost btn-sm sc-undo-btn" onclick="undoSetBid('${slot.id}')">↩</button></div>`;
     } else if (!isMe && !hasInput) {
-      sa.innerHTML = `<input type="number" class="form-input" id="sbid-${slot.id}"
-        value="${next.toFixed(2)}" min="${next.toFixed(2)}" step="0.25">
-        <button class="btn btn-gold btn-sm" onclick="placeSetBid('${slot.id}')">Bid</button>`;
+      sa.innerHTML = `<div class="sc-bid-action"><input type="number" class="form-input sc-bid-input" id="sbid-${slot.id}" value="${next.toFixed(2)}" min="${next.toFixed(2)}" step="0.25" inputmode="decimal"><button class="btn btn-gold btn-sm sc-bid-btn" onclick="placeSetBid('${slot.id}')">Bid</button></div>`;
     } else if (isMe && !hasInput) {
       const amtEl = sa.querySelector('div'); if (amtEl) amtEl.textContent = '✓ You: ' + fmt(slot.current_highest_bid);
     } else if (!isMe && hasInput) {
@@ -840,7 +955,7 @@ function startTimer(endTime) {
     t.textContent = rem + 's';
     t.className = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
   }
-  tick(); timerInterval = setInterval(tick, 300);
+  tick(); timerInterval = setInterval(tick, 500);
 }
 function stopTimer()    { clearInterval(timerInterval);    timerInterval    = null; }
 
@@ -852,7 +967,7 @@ function startSetTimer(endMs) {
     t.textContent = rem + 's';
     t.className = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
   }
-  tick(); setTimerInterval = setInterval(tick, 300);
+  tick(); setTimerInterval = setInterval(tick, 500);
 }
 function stopSetTimer() { clearInterval(setTimerInterval); setTimerInterval = null; }
 
@@ -866,7 +981,7 @@ function startRTMTimer(deadlineMs) {
     t.style.display = 'inline-block';
     if (rem <= 0) stopRTMTimer();
   }
-  tick(); rtmTimerInterval = setInterval(tick, 300);
+  tick(); rtmTimerInterval = setInterval(tick, 500);
 }
 function stopRTMTimer() { clearInterval(rtmTimerInterval); rtmTimerInterval = null; }
 
@@ -934,14 +1049,14 @@ async function placeSetBid(slotId) {
   const amount = Math.round(raw / 0.25) * 0.25;
   if (Math.abs(amount - raw) > 0.001) { if (errEl) errEl.textContent = 'Must be ×₹0.25 Cr'; inp.value = amount.toFixed(2); return; }
 
-  // Cross-slot purse check: sum all slots where I'm currently winning (excluding this slot)
+  // Cross-slot purse check: sum all sc-leading cards (excluding this slot)
   const myCurrentWinningBids = (currentState?.status === 'set_live')
-    ? Array.from(document.querySelectorAll('[id^="set-card-"].leading')).reduce((sum, card) => {
+    ? Array.from(document.querySelectorAll('[id^="set-card-"].sc-leading')).reduce((sum, card) => {
         const cardSlotId = card.id.replace('set-card-', '');
         if (cardSlotId === String(slotId)) return sum; // exclude this slot (replacing my bid)
-        const bidEl = card.querySelector('.set-slot-bid-val');
-        const bidText = bidEl?.textContent?.replace(/[^0-9.]/g, '') || '0';
-        return sum + (parseFloat(bidText) || 0);
+        // Read stored bid value from data attribute set when bidding
+        const storedBid = parseFloat(card.dataset.myBid || '0');
+        return sum + storedBid;
       }, 0)
     : 0;
 
@@ -956,6 +1071,9 @@ async function placeSetBid(slotId) {
   if (btn) { btn.disabled = false; btn.textContent = 'Bid'; }
   if (error || !data?.success) { if (errEl) errEl.textContent = error?.message||data?.error||'Error'; return; }
   toast('✓ Set bid: ' + fmt(amount), 'success');
+  // Store bid amount on card for cross-slot purse calculation
+  const bidCard = document.getElementById('set-card-'+slotId);
+  if (bidCard) bidCard.dataset.myBid = amount;
   await refreshPurse();
   _lastSlotsHash = ''; _lastStateHash = ''; fetchState();
 }
@@ -984,18 +1102,52 @@ async function refreshPurse() {
 // ── Stats ─────────────────────────────────────────────────────
 async function loadStats() {
   try {
-    const { count: total } = await sb.from('players_master').select('*', { count:'exact', head:true });
-    const { data: soldRows } = await sb.from('team_players').select('sold_price');
-    const soldCount = soldRows?.length || 0;
-    const spent = (soldRows||[]).reduce((s,r) => s+Number(r.sold_price||0), 0);
-    const { data: st } = await sb.from('auction_state').select('unsold_player_ids').eq('id',1).maybeSingle();
-    const unsoldCount = Array.isArray(st?.unsold_player_ids) ? st.unsold_player_ids.length : 0;
-    if (el('as-total'))     el('as-total').textContent     = total || 0;
+    const [{ data: allP }, { data: soldRows }, { data: st }] = await Promise.all([
+      sb.from('players_master').select('id,role'),
+      sb.from('team_players').select('sold_price,player_id'),
+      sb.from('auction_state').select('unsold_player_ids').eq('id',1).maybeSingle()
+    ]);
+    const soldIds   = new Set((soldRows||[]).map(r => r.player_id));
+    const soldCount = soldIds.size;
+    const spent     = (soldRows||[]).reduce((s,r) => s+Number(r.sold_price||0), 0);
+    const unsoldIds2 = new Set(Array.isArray(st?.unsold_player_ids) ? st.unsold_player_ids : []);
+    const unsoldCount = unsoldIds2.size;
+    const total = (allP||[]).length;
+
+    if (el('as-total'))     el('as-total').textContent     = total;
     if (el('as-sold'))      el('as-sold').textContent      = soldCount;
     if (el('as-unsold'))    el('as-unsold').textContent    = unsoldCount;
-    if (el('as-remaining')) el('as-remaining').textContent = Math.max(0,(total||0)-soldCount-unsoldCount);
+    if (el('as-remaining')) el('as-remaining').textContent = Math.max(0, total - soldCount - unsoldCount);
     if (el('as-spent'))     el('as-spent').textContent     = spent.toFixed(2);
+
+    // Role pool counter — available (not sold, not unsold) players per role
+    const rolePool = {};
+    (allP||[]).forEach(p => {
+      if (!soldIds.has(p.id) && !unsoldIds2.has(p.id)) {
+        rolePool[p.role] = (rolePool[p.role]||0) + 1;
+      }
+    });
+    renderRolePool(rolePool);
   } catch(e) { console.warn('[Stats]', e.message); }
+}
+
+function renderRolePool(pool) {
+  const cont = el('role-pool-wrap'); if (!cont) return;
+  const roles = [
+    { key:'Wicket-Keeper', short:'WK',   icon:'🧤' },
+    { key:'Batter',        short:'BAT',  icon:'🏏' },
+    { key:'Bowler',        short:'BOWL', icon:'⚡' },
+    { key:'All-Rounder',   short:'AR',   icon:'🌟' },
+  ];
+  cont.innerHTML = roles.map(r => {
+    const n = pool[r.key] || 0;
+    const color = n === 0 ? 'var(--red)' : n <= 2 ? '#f6ad55' : 'var(--text2)';
+    return '<div class="role-pool-chip">' +
+      '<span class="rpc-icon">' + r.icon + '</span>' +
+      '<span class="rpc-val" style="color:' + color + ';">' + n + '</span>' +
+      '<span class="rpc-lbl">' + r.short + '</span>' +
+      '</div>';
+  }).join('');
 }
 
 // ── Squad with full validation ────────────────────────────────
@@ -1115,7 +1267,7 @@ async function exportSquadCSV() {
     const { data: rows } = await sb.from('team_players')
       .select('sold_price,is_retained,is_rtm,player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)')
       .eq('team_id', myTeam.id);
-    const lines = [['#','Player','Role','IPL Team','BFL Avg','Base (Cr)','Paid (Cr)','Retained','RTM','Overseas','Uncapped']];
+    const lines = [['#','Player','Role','IPL Team','IPL 25 Avg','Base (Cr)','Paid (Cr)','Retained','RTM','Overseas','Uncapped']];
     (rows||[]).forEach((r,i) => {
       const p = r.player || {};
       lines.push([i+1,p.name||'?',p.role||'?',p.ipl_team||'?',
@@ -1194,8 +1346,9 @@ async function exportSquadPDF() {
         <div class="stat"><div class="stat-val">${uc}</div><div class="stat-lbl">Uncapped</div></div>
         <div class="stat"><div class="stat-val">${rtn}</div><div class="stat-lbl">Retained</div></div>
       </div>
+      <div style="margin-bottom:16px;padding:12px 16px;background:#f7f7f7;border:1px solid #ddd;border-radius:8px;font-size:12px;"><strong>Squad Composition:</strong> WK: ${list.filter(r=>r.player?.role==='Wicket-Keeper').length}/1+ &nbsp;|&nbsp; BAT: ${list.filter(r=>r.player?.role==='Batter').length}/2+ &nbsp;|&nbsp; BOWL: ${list.filter(r=>r.player?.role==='Bowler').length}/3+ &nbsp;|&nbsp; AR: ${list.filter(r=>r.player?.role==='All-Rounder').length}/2+ &nbsp;|&nbsp; OS: ${os}/4 max &nbsp;|&nbsp; UC: ${uc}/1+</div>
       <table>
-        <thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>BFL Avg</th><th>Base</th><th>Paid</th><th>Tags</th></tr></thead>
+        <thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>IPL 25 Avg</th><th>Base</th><th>Paid</th><th>Tags</th></tr></thead>
         <tbody>${rows_html}</tbody>
       </table>
       <script>window.onload=()=>window.print();<\/script>
@@ -1251,7 +1404,7 @@ function subscribeRealtime() {
         updatePurseDisplay(); updateRTMBadge();
       }
     })
-    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'teams' }, () => { loadAllTeams(); })
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'teams' }, () => { dbt('allTeams', loadAllTeams, 800); })
     .on('postgres_changes', { event:'*', schema:'public', table:'team_players' }, () => {
       loadSquad(); loadStats(); loadAllTeams();
     })
@@ -1280,7 +1433,7 @@ document.addEventListener('keydown', e => {
     const tag = document.activeElement?.tagName;
     if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') {
       const inp = el('bid-input');
-      if (inp && !inp.disabled) { e.preventDefault(); inp.focus(); inp.select(); }
+      if (inp && !inp.disabled) { e.preventDefault(); inp.focus(); inp.select(); inp.scrollIntoView({behavior:"smooth",block:"center"}); }
     }
   }
   // Escape → clear bid error, blur input

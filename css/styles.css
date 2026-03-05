@@ -961,3 +961,328 @@ select.form-input{cursor:pointer;}
   font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
 }
 .ql-empty { padding: 12px; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* ── SET SLOT CARD — FIFA-style player card ──────────────────── */
+
+/* Card shell */
+.sc-card {
+  --sc-primary: #f0b429;
+  --sc-glow:    rgba(240,180,41,0.25);
+  --sc-secondary: #1a1a2e;
+  position: relative;
+  background: linear-gradient(160deg, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0) 100%),
+              rgba(14,17,28,0.97);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  padding: 0;
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  animation: fade-in-up 0.3s ease both;
+}
+.sc-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px var(--sc-glow), 0 2px 8px rgba(0,0,0,0.4);
+  border-color: rgba(255,255,255,0.14);
+}
+.sc-card.sc-leading {
+  border-color: var(--green) !important;
+  box-shadow: 0 0 0 1px var(--green), 0 6px 28px rgba(56,161,105,0.25) !important;
+  animation: pulse-green 2.5s ease-in-out infinite;
+}
+/* Staggered animation delays */
+.sc-card:nth-child(1){animation-delay:.04s}
+.sc-card:nth-child(2){animation-delay:.08s}
+.sc-card:nth-child(3){animation-delay:.12s}
+.sc-card:nth-child(4){animation-delay:.16s}
+.sc-card:nth-child(5){animation-delay:.20s}
+.sc-card:nth-child(6){animation-delay:.24s}
+
+/* IPL color band across the top */
+.sc-band {
+  height: 4px;
+  background: var(--sc-primary);
+  box-shadow: 0 0 12px var(--sc-glow);
+}
+
+/* Header: avatar + name + tags */
+.sc-header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 14px 8px;
+}
+.sc-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.sc-avatar {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--border);
+  border: 2.5px solid var(--sc-primary);
+  box-shadow: 0 0 10px var(--sc-glow);
+  display: block;
+}
+.sc-team-logo {
+  position: absolute;
+  bottom: -3px; right: -6px;
+  width: 22px; height: 22px;
+  object-fit: contain;
+  background: rgba(10,12,20,0.92);
+  border-radius: 50%;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.sc-identity { flex: 1; min-width: 0; }
+.sc-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px; font-weight: 800; line-height: 1.1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+.sc-sub {
+  font-size: 11px; font-weight: 700;
+  margin-top: 2px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.sc-tags {
+  display: flex; flex-wrap: wrap; gap: 3px;
+  margin-top: 5px;
+}
+
+/* Stats strip */
+.sc-stats {
+  display: flex;
+  align-items: center;
+  padding: 7px 14px;
+  background: rgba(0,0,0,0.25);
+  border-top: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  gap: 0;
+}
+.sc-stat {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 1px;
+}
+.sc-stat-div {
+  width: 1px; height: 28px;
+  background: rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.sc-stat-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px; font-weight: 800; line-height: 1;
+  color: var(--text);
+}
+.sc-stat-lbl {
+  font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.7px; color: var(--muted);
+}
+
+/* Bid row: Highest | 2nd */
+.sc-bids { padding: 8px 14px 4px; }
+.sc-bid-row {
+  display: flex;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.3);
+}
+.sc-bid-col {
+  flex: 1;
+  padding: 6px 10px;
+  text-align: center;
+}
+.sc-bid-col + .sc-bid-col {
+  border-left: 1px solid rgba(255,255,255,0.07);
+  background: rgba(0,0,0,0.15);
+}
+.sc-bid-sep { display: none; }   /* kept for compat */
+.sc-bid-lbl {
+  font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.6px; color: var(--muted);
+  margin-bottom: 2px;
+}
+.sc-bid-amt {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 19px; font-weight: 800; line-height: 1;
+  color: var(--muted);
+}
+.sc-bid-amt.sc-bid-me    { color: var(--green); }
+.sc-bid-amt.sc-bid-other { color: var(--gold);  }
+.sc-bid-amt.sc-bid-2nd   { color: var(--text2); font-size: 16px; }
+.sc-no-bid { font-size: 14px; color: var(--muted); }
+.sc-bid-team {
+  font-size: 10px; color: var(--muted);
+  margin-top: 2px; min-height: 14px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Bid action row */
+.sc-bid-action {
+  display: flex; align-items: center;
+  gap: 6px;
+  padding: 8px 14px 12px;
+}
+.sc-bid-input {
+  flex: 1; min-width: 0;
+  padding: 7px 8px; font-size: 13px;
+}
+.sc-bid-btn {
+  flex-shrink: 0; white-space: nowrap;
+}
+.sc-undo-btn { flex-shrink: 0; }
+
+/* Leading state inside bid action */
+.sc-winning {
+  display: flex; align-items: center; gap: 6px;
+  flex: 1; min-width: 0;
+}
+.sc-winning-icon {
+  width: 20px; height: 20px;
+  background: var(--green);
+  color: #000; border-radius: 50%;
+  font-size: 11px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.sc-winning-label {
+  font-size: 11px; font-weight: 700;
+  color: var(--green); text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.sc-winning-amt {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px; font-weight: 800;
+  color: var(--green); line-height: 1;
+  margin-left: auto;
+}
+
+/* ══════════════════════════════════════════════════════════
+   BFL v34 — New feature styles
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Outbid toast enhancement ── */
+.toast-warn { border-left: 3px solid #f97316; }
+
+/* ── Purse delta badge ── */
+.purse-delta {
+  position: absolute;
+  top: -18px; right: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px; font-weight: 800;
+  color: var(--red);
+  animation: delta-float 2.2s ease forwards;
+  pointer-events: none; white-space: nowrap;
+}
+@keyframes delta-float {
+  0%   { opacity:1; transform: translateY(0); }
+  80%  { opacity:1; transform: translateY(-18px); }
+  100% { opacity:0; transform: translateY(-22px); }
+}
+.navbar-right { position: relative; }
+
+/* ── Role pool counter row ── */
+.role-pool-row {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0 2px;
+  flex-wrap: wrap;
+}
+.role-pool-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 10px 3px 6px;
+  font-size: 12px;
+}
+.rpc-icon { font-size: 13px; }
+.rpc-val  { font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 800; }
+.rpc-lbl  { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ── IPL 25 Avg tiers ── */
+.avg-elite { color: #fbbf24 !important; }
+.avg-good  { color: var(--green) !important; }
+.avg-fair  { color: #60a5fa !important; }
+.avg-weak  { color: #94a3b8 !important; }
+
+/* ── RTM hold-to-confirm ── */
+.rtm-hold-btn {
+  position: relative; overflow: hidden; cursor: pointer;
+  user-select: none; -webkit-user-select: none;
+}
+.rtm-hold-btn .rtm-hold-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: rgba(255,255,255,0.15);
+  width: 0; transition: none;
+  border-radius: inherit;
+}
+.rtm-hold-btn.holding .rtm-hold-fill {
+  width: 100%;
+  transition: width 1.8s linear;
+}
+.rtm-hold-hint {
+  font-size: 10px; color: var(--muted); text-align: center;
+  margin-top: 6px; letter-spacing: 0.5px; text-transform: uppercase;
+}
+
+/* ── Cancel Live button (admin) ── */
+.btn-cancel-live {
+  background: rgba(229,62,62,0.12);
+  color: var(--red);
+  border: 1px solid rgba(229,62,62,0.3);
+}
+.btn-cancel-live:hover:not(:disabled) {
+  background: rgba(229,62,62,0.22);
+  box-shadow: 0 0 12px rgba(229,62,62,0.2);
+}
+
+/* ── Bulk re-queue button ── */
+.btn-requeue {
+  background: rgba(59,130,246,0.1);
+  color: #60a5fa;
+  border: 1px solid rgba(59,130,246,0.25);
+}
+.btn-requeue:hover:not(:disabled) {
+  background: rgba(59,130,246,0.2);
+}
+
+/* ── Set card "WON" closed state ── */
+.sc-card.sc-won {
+  opacity: 0.75;
+  border-color: var(--green) !important;
+}
+.sc-card.sc-won .sc-band { background: var(--green); }
+.sc-won-badge {
+  text-align: center;
+  padding: 8px;
+  background: rgba(56,161,105,0.12);
+  border-top: 1px solid rgba(56,161,105,0.2);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 800;
+  color: var(--green); letter-spacing: 0.5px;
+}
+
+/* ── index.html: Fix hover state on Enter Auction Room button ── */
+/* In index.html, btn-gold hover shows gold-on-gold — override text to stay dark */
+.btn-gold:hover:not(:disabled) { color: #000 !important; }
+
+/* ── Rules "Skip" link ── */
+.rules-skip-link {
+  display: block; text-align: center;
+  margin-top: 10px;
+  font-size: 11px; color: var(--muted);
+  text-decoration: none; cursor: pointer;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  transition: color 0.18s;
+}
+.rules-skip-link:hover { color: var(--text2); }
+
+/* ── Admin: show bfl_avg with color in player list ── */
+.avg-cell { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 13px; }

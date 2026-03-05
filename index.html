@@ -4,180 +4,97 @@
   <link rel="icon" href="data:,">
   <meta charset="UTF-8">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BFL IPL 2026 — Login</title>
-  <link rel="stylesheet" href="css/styles.css?v=30">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css?v=34">
   <style>
-    :root {
-      --gold:#f0b429;--gold-glow:rgba(240,180,41,0.2);
-      --bg:#0b0e18;--bg-input:#0d1020;
-      --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.1);
-      --text:#e2e8f0;--text2:#94a3b8;--muted:#475569;
-      --radius:10px;
-    }
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:'Barlow Condensed',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+    /* Only rules-specific styles that don't exist in styles.css */
+    @keyframes float-emoji { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+    @keyframes logo-reveal  { from{opacity:0;transform:scale(.4) rotate(-20deg)} to{opacity:1;transform:none} }
+    @keyframes bar-fill     { from{width:0} to{width:100%} }
+    @keyframes cfetti       { 0%{opacity:1;transform:translateY(-10px) rotate(0)} 100%{opacity:0;transform:translateY(70px) rotate(540deg)} }
 
-    .bg-atmo{position:fixed;inset:0;pointer-events:none;z-index:0;
-      background:radial-gradient(ellipse 90% 50% at 50% -5%,rgba(240,180,41,.1) 0%,transparent 65%),
-                 radial-gradient(ellipse 50% 40% at 10% 100%,rgba(59,130,246,.06) 0%,transparent 60%);}
+    .bfl-emoji   { font-size:64px; display:block; line-height:1; text-align:center; margin-bottom:6px; animation:float-emoji 2.5s ease infinite; }
+    .bfl-logo    { font-family:'Barlow Condensed',sans-serif; font-size:46px; font-weight:800; letter-spacing:6px; color:var(--gold); text-transform:uppercase; text-align:center; text-shadow:0 0 36px var(--gold-glow); animation:glow-gold 3s ease infinite; }
+    .bfl-sub     { text-align:center; color:var(--muted); font-size:12px; letter-spacing:2px; text-transform:uppercase; margin-bottom:24px; }
+    .bfl-divider { height:1px; background:var(--border); margin:0 0 20px; }
 
-    .page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;position:relative;z-index:1;}
+    .role-tabs   { display:flex; gap:4px; background:rgba(0,0,0,.3); border:1px solid var(--border); border-radius:12px; padding:4px; margin-bottom:20px; }
+    .role-tab    { flex:1; padding:9px 0; text-align:center; font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); border:none; background:transparent; border-radius:9px; cursor:pointer; transition:all .2s; }
+    .role-tab.active { background:var(--gold); color:#000; box-shadow:0 2px 12px rgba(240,180,41,.4); }
 
-    @keyframes card-in{from{opacity:0;transform:translateY(24px) scale(.97)}to{opacity:1;transform:none}}
-    .card{
-      width:100%;max-width:430px;
-      background:rgba(17,21,32,.97);
-      border:1px solid var(--border2);border-radius:20px;
-      padding:36px 32px 30px;
-      box-shadow:0 40px 80px rgba(0,0,0,.65),0 0 0 1px rgba(240,180,41,.05);
-      animation:card-in .45s cubic-bezier(.22,.68,0,1.2) both;
-      position:relative;
-    }
-    .card::before{content:'';position:absolute;top:0;left:10%;right:10%;height:2px;
-      background:linear-gradient(90deg,transparent,var(--gold) 50%,transparent);border-radius:0 0 4px 4px;}
+    .sel-wrap    { position:relative; }
+    .sel-icon    { position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:20px; pointer-events:none; z-index:1; }
+    .sel-wrap select { width:100%; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius); padding:10px 40px 10px 44px; color:var(--text); font-family:'Barlow Condensed',sans-serif; font-size:16px; font-weight:700; outline:none; appearance:none; cursor:pointer; transition:border-color .2s; }
+    .sel-wrap select:focus { border-color:var(--gold); box-shadow:0 0 0 3px var(--gold-glow); }
+    .sel-wrap::after { content:'▾'; position:absolute; right:12px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; font-size:12px; }
+    .ipl-badge   { position:absolute; right:32px; top:50%; transform:translateY(-50%); width:26px; height:26px; object-fit:contain; opacity:0; pointer-events:none; transition:opacity .3s; z-index:1; }
+    .ipl-badge.show { opacity:.85; }
 
-    /* Logo */
-    @keyframes glow-pulse{0%,100%{text-shadow:0 0 20px rgba(240,180,41,.3)}50%{text-shadow:0 0 50px rgba(240,180,41,.7),0 0 80px rgba(240,180,41,.2)}}
-    .logo-wrap{text-align:center;margin-bottom:20px;}
-    .logo-ball{font-size:44px;display:block;line-height:1;margin-bottom:4px;}
-    .logo-text{font-size:42px;font-weight:800;letter-spacing:6px;color:var(--gold);text-transform:uppercase;animation:glow-pulse 3s ease infinite;}
-    .logo-sub{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:2.5px;text-transform:uppercase;margin-top:4px;}
+    .pwd-wrap    { position:relative; }
+    .pwd-wrap .form-input { padding-right:42px; letter-spacing:2px; }
+    .pwd-wrap .form-input::placeholder { letter-spacing:0; }
+    .pwd-toggle  { position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; padding:4px; }
 
-    .divider{height:1px;background:var(--border);margin:20px 0;}
+    .ws-chip     { background:rgba(240,180,41,.08); border:1px solid rgba(240,180,41,.2); border-radius:8px; padding:8px 14px; text-align:center; }
+    .ws-chip strong { color:var(--gold); display:block; font-size:18px; font-weight:800; font-family:'Barlow Condensed',sans-serif; }
+    .ws-chip span   { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.8px; }
+    .w-bar-wrap  { height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+    .w-bar       { height:100%; background:var(--gold); border-radius:2px; width:0; }
 
-    /* Role tabs */
-    .role-tabs{display:flex;gap:4px;background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:12px;padding:4px;margin-bottom:22px;}
-    .role-tab{flex:1;padding:10px 0;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);border:none;background:transparent;border-radius:9px;cursor:pointer;transition:all .22s ease;}
-    .role-tab:hover:not(.active){color:var(--text2);}
-    .role-tab.active{background:var(--gold);color:#000;box-shadow:0 2px 14px rgba(240,180,41,.45);}
+    .rules-card  { background:rgba(0,0,0,.3); border:1px solid rgba(255,255,255,.07); border-radius:12px; padding:18px 16px; min-height:190px; }
+    .rules-step  { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:2px; color:var(--muted); margin-bottom:5px; }
+    .rules-title { font-family:'Barlow Condensed',sans-serif; font-size:19px; font-weight:800; color:var(--gold); margin-bottom:10px; line-height:1.2; }
+    .rules-body  { font-size:13px; color:#a0aec0; line-height:1.65; }
+    .rules-body strong { color:#e2e8f0; }
+    .rules-body ul { margin:6px 0 6px 14px; padding:0; }
+    .rules-body li { margin-bottom:3px; }
+    .rule-tag    { display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:700; font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:.5px; margin:0 2px; vertical-align:middle; }
+    .rtag-gold   { background:rgba(240,180,41,.15); color:var(--gold); border:1px solid rgba(240,180,41,.3); }
+    .rtag-blue   { background:rgba(59,130,246,.15);  color:#93c5fd;    border:1px solid rgba(59,130,246,.3); }
+    .rtag-red    { background:rgba(229,62,62,.15);   color:#fc8181;    border:1px solid rgba(229,62,62,.3); }
+    .rtag-green  { background:rgba(56,161,105,.15);  color:#68d391;    border:1px solid rgba(56,161,105,.3); }
+    .rtag-purple { background:rgba(139,92,246,.15);  color:#c4b5fd;    border:1px solid rgba(139,92,246,.3); }
 
-    /* Form */
-    .form-group{margin-bottom:18px;}
-    .form-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:7px;}
+    .rules-dots  { display:flex; gap:5px; align-items:center; justify-content:center; margin:10px 0; }
+    .rules-dot   { width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,.15); transition:all .2s; cursor:pointer; }
+    .rules-dot.active { background:var(--gold); transform:scale(1.4); }
 
-    /* Select */
-    .sel-wrap{position:relative;}
-    .sel-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:22px;pointer-events:none;z-index:1;}
-    .sel-wrap select{width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);padding:12px 42px 12px 46px;color:var(--text);font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;outline:none;appearance:none;-webkit-appearance:none;cursor:pointer;transition:border-color .2s,box-shadow .2s;}
-    .sel-wrap select:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow);}
-    .sel-wrap::after{content:'▾';position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;font-size:13px;}
-    .ipl-badge{position:absolute;right:34px;top:50%;transform:translateY(-50%);width:28px;height:28px;object-fit:contain;opacity:0;pointer-events:none;transition:opacity .35s;z-index:1;}
-    .ipl-badge.show{opacity:.85;}
+    .rules-nav   { display:flex; gap:8px; }
+    .rules-btn   { flex:1; padding:10px 0; border:1px solid rgba(255,255,255,.1); border-radius:8px; background:transparent; color:#a0aec0; cursor:pointer; font-family:'Barlow Condensed',sans-serif; font-size:15px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; transition:all .18s; }
+    .rules-btn:hover:not(:disabled) { border-color:var(--gold); color:var(--gold); }
+    .rules-btn:disabled { opacity:.2; cursor:not-allowed; }
+    .rules-btn.finish   { background:var(--gold); color:#000; border-color:var(--gold); box-shadow:0 4px 20px rgba(240,180,41,.35); }
+    .rules-btn.finish:hover:not(:disabled) { background:var(--gold); color:#000 !important; }
 
-    /* Password */
-    .pwd-wrap{position:relative;}
-    .pwd-wrap input{width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);padding:12px 44px 12px 14px;color:var(--text);font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;outline:none;letter-spacing:2px;transition:border-color .2s,box-shadow .2s;}
-    .pwd-wrap input::placeholder{letter-spacing:0;font-weight:400;color:var(--muted);}
-    .pwd-wrap input:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow);}
-    .pwd-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;padding:4px;transition:color .2s;}
-    .pwd-toggle:hover{color:var(--text);}
+    /* Fix: btn-gold hover must keep text black, not gold-on-gold */
+    .btn-gold:hover:not(:disabled) { color:#000 !important; background:var(--gold) !important; }
 
-    .error-msg{font-size:13px;color:#fc8181;min-height:18px;margin-bottom:12px;text-align:center;font-weight:600;}
+    /* Skip link under rules nav */
+    .rules-skip-link { display:block; text-align:center; margin-top:12px; font-size:11px; color:var(--muted); cursor:pointer; letter-spacing:.8px; text-transform:uppercase; transition:color .18s; }
+    .rules-skip-link:hover { color:var(--text2); }
 
-    /* Button */
-    .login-btn{width:100%;padding:14px;font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;background:var(--gold);color:#000;border:none;border-radius:var(--radius);cursor:pointer;box-shadow:0 4px 24px rgba(240,180,41,.3);transition:transform .15s,box-shadow .15s,opacity .15s;}
-    .login-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 36px rgba(240,180,41,.5);}
-    .login-btn:active:not(:disabled){transform:scale(.98);}
-    .login-btn:disabled{opacity:.35;cursor:not-allowed;transform:none!important;}
-    .footer-note{text-align:center;margin-top:18px;font-size:11px;color:var(--muted);letter-spacing:.5px;}
+    .clayer { position:fixed; inset:0; pointer-events:none; z-index:9999; overflow:hidden; }
+    .cdot   { position:absolute; border-radius:2px; animation:cfetti linear both; }
 
-    /* Welcome */
-    @keyframes welcome-in{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
-    @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-    @keyframes logo-reveal{from{opacity:0;transform:scale(.4) rotate(-20deg)}to{opacity:1;transform:none}}
-    @keyframes bar-fill{from{width:0}to{width:100%}}
-
-    #welcome-screen{display:none;text-align:center;animation:welcome-in .55s cubic-bezier(.34,1.56,.64,1) both;}
-    .w-emoji{font-size:72px;display:block;line-height:1;margin-bottom:8px;animation:float 2.5s ease infinite;}
-    .w-ipl-logo{width:68px;height:68px;object-fit:contain;margin:0 auto 10px;display:none;animation:logo-reveal .6s cubic-bezier(.34,1.56,.64,1) both;animation-delay:.3s;opacity:0;}
-    .w-ipl-logo.loaded{opacity:1;}
-    .w-title{font-size:34px;font-weight:800;color:var(--gold);letter-spacing:1px;margin-bottom:6px;}
-    .w-team{font-size:22px;font-weight:700;color:var(--text);margin-bottom:16px;line-height:1.2;}
-    .w-stats{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:22px;}
-    .ws-chip{background:rgba(240,180,41,.08);border:1px solid rgba(240,180,41,.2);border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;}
-    .ws-chip strong{color:var(--gold);display:block;font-size:18px;font-weight:800;}
-    .ws-chip span{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.8px;}
-    .w-bar-wrap{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:8px;}
-    .w-bar{height:100%;background:var(--gold);border-radius:2px;width:0;}
-    .w-redir{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
-
-    /* Confetti */
-    @keyframes cfetti{0%{opacity:1;transform:translateY(-10px) rotate(0)}100%{opacity:0;transform:translateY(70px) rotate(540deg)}}
-    .clayer{position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden;}
-    .cdot{position:absolute;border-radius:2px;animation:cfetti linear both;}
-
-    @media(max-width:480px){.card{padding:26px 18px 24px;}.logo-text{font-size:34px;}}
-
-    /* ── Rules card ── */
-    .rules-card{
-      background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);
-      border-radius:14px;padding:20px 18px;margin-bottom:14px;
-      min-height:220px;max-height:360px;overflow-y:auto;
-      animation:card-in 0.3s ease both;
-    }
-    .rules-step{
-      font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;
-      color:var(--muted);margin-bottom:6px;
-    }
-    .rules-title{
-      font-size:20px;font-weight:800;color:var(--gold);
-      margin-bottom:10px;line-height:1.2;
-    }
-    .rules-body{font-size:13px;color:#a0aec0;line-height:1.7;}
-    .rules-body strong{color:#e2e8f0;}
-    .rules-body ul{margin:8px 0 8px 16px;padding:0;}
-    .rules-body li{margin-bottom:4px;}
-    .rules-body .rule-tag{
-      display:inline-block;padding:1px 7px;border-radius:4px;
-      font-size:11px;font-weight:700;font-family:'Barlow Condensed',sans-serif;
-      text-transform:uppercase;letter-spacing:0.5px;margin:1px 2px;
-      vertical-align:middle;
-    }
-    .tag-gold{background:rgba(240,180,41,0.15);color:var(--gold);border:1px solid rgba(240,180,41,0.3);}
-    .tag-blue{background:rgba(59,130,246,0.15);color:#93c5fd;border:1px solid rgba(59,130,246,0.3);}
-    .tag-red {background:rgba(229,62,62,0.15); color:#fc8181;border:1px solid rgba(229,62,62,0.3);}
-    .tag-green{background:rgba(56,161,105,0.15);color:#68d391;border:1px solid rgba(56,161,105,0.3);}
-    .tag-purple{background:rgba(139,92,246,0.15);color:#c4b5fd;border:1px solid rgba(139,92,246,0.3);}
-    .rules-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;}
-    .rules-nav-btn{
-      padding:8px 16px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;
-      background:transparent;color:#a0aec0;cursor:pointer;
-      font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;
-      text-transform:uppercase;letter-spacing:0.5px;
-      transition:all 0.18s;white-space:nowrap;
-    }
-    .rules-nav-btn:hover:not(:disabled){border-color:var(--gold);color:var(--gold);}
-    .rules-nav-btn:disabled{opacity:0.25;cursor:not-allowed;}
-    .rules-nav-btn.finish{background:var(--gold);color:#000;border-color:var(--gold);}
-    .rules-nav-btn.finish:hover{box-shadow:0 4px 20px rgba(240,180,41,0.4);}
-    .rules-dots{display:flex;gap:6px;align-items:center;}
-    .rules-dot{
-      width:7px;height:7px;border-radius:50%;
-      background:rgba(255,255,255,0.15);transition:all 0.2s;cursor:pointer;
-    }
-    .rules-dot.active{background:var(--gold);transform:scale(1.3);}
+    .ipl-logo-badge { width:64px; height:64px; object-fit:contain; display:block; margin:0 auto 10px; animation:logo-reveal .6s cubic-bezier(.34,1.56,.64,1) both; animation-delay:.3s; opacity:0; transition:opacity .3s; }
+    .ipl-logo-badge.loaded { opacity:1; }
   </style>
 </head>
 <body>
-<div class="bg-atmo"></div>
 <div class="clayer" id="clayer"></div>
 
-<div class="page">
-  <div class="card">
+<div class="page-center">
+  <div class="card login-card">
 
-    <div class="logo-wrap">
-      <span class="logo-ball">🏏</span>
-      <div class="logo-text">BFL</div>
-      <div class="logo-sub">IPL 2026 Fantasy Auction</div>
-    </div>
+    <!-- LOGO -->
+    <div class="bfl-logo">BFL</div>
+    <div class="login-subtitle">IPL 2026 Fantasy Auction &nbsp;🏏</div>
+    <div class="bfl-divider"></div>
 
-    <!-- LOGIN FORM -->
-    <div id="login-screen">
-      <div class="divider"></div>
-
+    <!-- ══ SCREEN 1: LOGIN ══ -->
+    <div id="screen-login">
       <div class="role-tabs">
         <button class="role-tab active" id="tab-team"  onclick="switchRole('team')">🏆 My Team</button>
         <button class="role-tab"        id="tab-admin" onclick="switchRole('admin')">⚙️ Auctioneer</button>
@@ -187,7 +104,7 @@
         <label class="form-label">Select Your Franchise</label>
         <div class="sel-wrap">
           <span class="sel-icon" id="sel-icon">🏏</span>
-          <select id="team-select" onchange="onTeamChange()">
+          <select id="team-select" class="form-input" style="padding-left:44px;" onchange="onTeamChange()">
             <option value="">— Loading teams… —</option>
           </select>
           <img id="ipl-badge" class="ipl-badge" src="" alt="">
@@ -197,419 +114,390 @@
       <div class="form-group">
         <label class="form-label" id="pwd-label">Team Password</label>
         <div class="pwd-wrap">
-          <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password">
+          <input class="form-input" type="password" id="password" placeholder="Enter your password" autocomplete="current-password">
           <button class="pwd-toggle" type="button" onclick="togglePwd()" id="pwd-eye">👁</button>
         </div>
       </div>
 
-      <div class="error-msg" id="auth-error"></div>
+      <div id="auth-error" class="error-msg" style="text-align:center;margin-bottom:10px;"></div>
 
-      <button class="login-btn" id="login-btn" onclick="doLogin()">Enter Auction Room</button>
-      <div class="footer-note">BFL Fantasy Cricket · Private System</div>
+      <button class="btn btn-gold btn-full" id="login-btn" onclick="doLogin()">
+        Enter Auction Room
+      </button>
+      <div style="text-align:center;margin-top:16px;font-size:11px;color:var(--muted);letter-spacing:.5px;">
+        BFL Fantasy Cricket · Private System
+      </div>
     </div>
 
-    <!-- WELCOME / RULES SCREEN -->
-    <div id="welcome-screen">
-
-      <!-- Step 1: Welcome splash -->
-      <div id="ws-splash">
-        <span class="w-emoji" id="w-emoji">🏆</span>
-        <img id="w-ipl-logo" class="w-ipl-logo" src="" alt="">
-        <div class="w-title" id="w-title">Welcome!</div>
-        <div class="w-team"  id="w-team"></div>
-        <div class="w-stats" id="w-stats"></div>
-        <div class="w-bar-wrap" id="w-bar-wrap" style="display:none;margin-top:14px;">
-          <div class="w-bar" id="w-bar"></div>
-        </div>
-        <div class="w-redir" id="w-redir" style="display:none;margin-top:6px;"></div>
-        <div id="w-rules-btn-wrap" style="margin-top:20px;">
-          <button class="login-btn" id="rules-btn" onclick="showRules()"
-            style="font-size:15px;padding:11px;">
-            📋 View Rules &amp; Enter Auction Room →
-          </button>
-        </div>
+    <!-- ══ SCREEN 2: WELCOME SPLASH ══ -->
+    <div id="screen-welcome" style="display:none;text-align:center;">
+      <span class="bfl-emoji" id="w-emoji">🏆</span>
+      <img id="w-ipl-logo" class="ipl-logo-badge" src="" alt="">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:32px;font-weight:800;color:var(--gold);letter-spacing:1px;margin-bottom:4px;" id="w-title">Welcome!</div>
+      <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:16px;" id="w-team"></div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:20px;" id="w-stats"></div>
+      <div class="w-bar-wrap" id="w-bar-wrap" style="display:none;margin-bottom:8px;">
+        <div class="w-bar" id="w-bar"></div>
       </div>
-
-      <!-- Step 2: Rules carousel -->
-      <div id="ws-rules" style="display:none;text-align:left;">
-        <div id="rules-card" class="rules-card"></div>
-        <div class="rules-nav">
-          <button class="rules-nav-btn" id="rules-prev" onclick="rulesNav(-1)">← Prev</button>
-          <div class="rules-dots" id="rules-dots"></div>
-          <button class="rules-nav-btn" id="rules-next" onclick="rulesNav(1)">Next →</button>
-        </div>
+      <div id="w-redir" style="display:none;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;"></div>
+      <div id="w-rules-btn-wrap">
+        <button class="btn btn-gold btn-full" onclick="showRules()" style="font-size:16px;margin-top:4px;">
+          📋 View Rules &amp; Enter Auction Room →
+        </button>
       </div>
+    </div>
 
+    <!-- ══ SCREEN 3: RULES CAROUSEL ══ -->
+    <div id="screen-rules" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:1px;">📋 Auction Rules</span>
+        <span id="rules-page-lbl" style="font-size:11px;color:var(--muted);">1 / 8</span>
+      </div>
+      <div id="rules-card" class="rules-card"></div>
+      <div class="rules-dots" id="rules-dots"></div>
+      <div class="rules-nav">
+        <button class="rules-btn" id="rules-prev" onclick="rulesNav(-1)">← Prev</button>
+        <button class="rules-btn" id="rules-next" onclick="rulesNav(1)">Next →</button>
+      </div>
+      <span class="rules-skip-link" onclick="window.location.href='auction.html'">Skip &amp; Enter Directly →</span>
     </div>
 
   </div>
 </div>
 
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/supabaseClient.js?v=30"></script>
+<script src="js/supabaseClient.js?v=34"></script>
 <script>
-let role = 'team';
-let teams = [];
+'use strict';
 
-const IPL_LOGO = c => c ? `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png` : null;
+var _role  = 'team';
+var _teams = [];
 
-const EMOJI = [
-  ['GUJARAT','⚡'],['MUMBAI','🔵'],['PUNJAB','♦️'],['CHENNAI','🦁'],
-  ['KOLKATA','💜'],['DELHI','🔷'],['RAJASTHAN','💙'],['SUNRISERS','🟠'],
-  ['ROYAL','🔴'],['SUPREME','👑'],['LUCKNOW','🌊'],
-];
-const CODES = [
-  ['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],
-  ['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],
-  ['ROYAL','RCB'],['LUCKNOW','LSG'],
-];
-const emoji = n => { const u=(n||'').toUpperCase(); const m=EMOJI.find(([k])=>u.includes(k)); return m?m[1]:'🏏'; };
-const code  = n => { const u=(n||'').toUpperCase(); const m=CODES.find(([k])=>u.includes(k)); return m?m[1]:null; };
+// ── Helpers ───────────────────────────────────────────────────
+var IPL_LOGO = function(c){ return 'https://documents.iplt20.com/ipl/'+c+'/logos/Logooutline/'+c+'outline.png'; };
+var EMOJIS = [['GUJARAT','⚡'],['MUMBAI','🔵'],['PUNJAB','♦️'],['CHENNAI','🦁'],['KOLKATA','💜'],['DELHI','🔷'],['RAJASTHAN','💙'],['SUNRISERS','🟠'],['ROYAL','🔴'],['LUCKNOW','🌊']];
+var ICODES = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],['ROYAL','RCB'],['LUCKNOW','LSG']];
+function teamEmoji(n){ var u=(n||'').toUpperCase(); var m=EMOJIS.find(function(x){return u.includes(x[0]);}); return m?m[1]:'🏏'; }
+function teamCode(n) { var u=(n||'').toUpperCase(); var m=ICODES.find(function(x){return u.includes(x[0]);}); return m?m[1]:null; }
 
-// ── Init ──────────────────────────────────────────────────────
-(async () => {
-  const { data:{ session } } = await sb.auth.getSession();
-  if (session) { await autoRedirect(session.user); return; }
-  await loadTeams();
-})();
+function el(id){ return document.getElementById(id); }
 
-async function loadTeams() {
-  // Try teams_public view first (created in 03_auth_setup.sql)
-  let { data, error } = await sb.from('teams_public').select('id,team_name').order('team_name');
-  if (error) ({ data } = await sb.from('teams').select('id,team_name').order('team_name'));
-  teams = data || [];
-  const sel = document.getElementById('team-select');
-  sel.innerHTML = '<option value="">— Pick your team —</option>' +
-    teams.map(t => `<option value="${t.id}">${t.team_name}</option>`).join('');
+// ── Screen management ─────────────────────────────────────────
+// Only one of the three screens is visible at a time
+function showScreen(name) {
+  el('screen-login').style.display   = name==='login'   ? '' : 'none';
+  el('screen-welcome').style.display = name==='welcome' ? '' : 'none';
+  el('screen-rules').style.display   = name==='rules'   ? '' : 'none';
 }
 
+// ── Init ──────────────────────────────────────────────────────
+(function(){
+  // Make sure login is visible immediately in case JS fails later
+  showScreen('login');
+})();
+
+(async function init(){
+  try {
+    var session = (await sb.auth.getSession()).data.session;
+    if (session) {
+      await autoRedirect(session.user);
+    } else {
+      await loadTeams();
+      showScreen('login');
+    }
+  } catch(e) {
+    console.error('Init error:', e);
+    showScreen('login');
+  }
+})();
+
+// ── Load teams ────────────────────────────────────────────────
+async function loadTeams() {
+  try {
+    var res = await sb.from('teams_public').select('id,team_name').order('team_name');
+    if (res.error) res = await sb.from('teams').select('id,team_name').order('team_name');
+    _teams = res.data || [];
+  } catch(e) { _teams = []; }
+  var sel = el('team-select');
+  sel.innerHTML = '<option value="">— Pick your team —</option>' +
+    _teams.map(function(t){ return '<option value="'+t.id+'">'+t.team_name+'</option>'; }).join('');
+}
+
+// ── Role switcher ─────────────────────────────────────────────
 function switchRole(r) {
-  role = r;
-  document.getElementById('tab-team').classList.toggle('active', r==='team');
-  document.getElementById('tab-admin').classList.toggle('active', r==='admin');
-  document.getElementById('team-group').style.display = r==='team' ? '' : 'none';
-  document.getElementById('pwd-label').textContent    = r==='admin' ? 'Auctioneer Password' : 'Team Password';
-  document.getElementById('login-btn').textContent    = r==='admin' ? 'Enter Auction Control' : 'Enter Auction Room';
-  document.getElementById('sel-icon').textContent     = r==='admin' ? '⚙️' : '🏏';
-  document.getElementById('auth-error').textContent   = '';
-  if (r==='admin') document.getElementById('ipl-badge').classList.remove('show');
+  _role = r;
+  el('tab-team').classList.toggle('active', r==='team');
+  el('tab-admin').classList.toggle('active', r==='admin');
+  el('team-group').style.display = r==='team' ? '' : 'none';
+  el('pwd-label').textContent    = r==='admin' ? 'Auctioneer Password' : 'Team Password';
+  el('login-btn').textContent    = r==='admin' ? 'Enter Auction Control' : 'Enter Auction Room';
+  el('auth-error').textContent   = '';
+  if (r==='admin') el('ipl-badge').classList.remove('show');
 }
 
 function onTeamChange() {
-  const sel  = document.getElementById('team-select');
-  const name = sel.options[sel.selectedIndex]?.text||'';
-  document.getElementById('sel-icon').textContent = emoji(name);
-  const c = code(name);
-  const badge = document.getElementById('ipl-badge');
-  if (c) { badge.src = IPL_LOGO(c); badge.classList.add('show'); }
-  else   { badge.classList.remove('show'); }
+  var sel  = el('team-select');
+  var name = (sel.options[sel.selectedIndex]||{}).text || '';
+  el('sel-icon').textContent = teamEmoji(name);
+  var c = teamCode(name);
+  if (c) { el('ipl-badge').src = IPL_LOGO(c); el('ipl-badge').classList.add('show'); }
+  else   { el('ipl-badge').classList.remove('show'); }
 }
 
 function togglePwd() {
-  const i = document.getElementById('password');
-  const e = document.getElementById('pwd-eye');
-  i.type = i.type==='password'?'text':'password';
-  e.textContent = i.type==='text'?'🙈':'👁';
+  var i = el('password'), e = el('pwd-eye');
+  i.type = i.type==='password' ? 'text' : 'password';
+  e.textContent = i.type==='text' ? '🙈' : '👁';
 }
 
+// ── Login ─────────────────────────────────────────────────────
 async function doLogin() {
-  const err = document.getElementById('auth-error');
-  const btn = document.getElementById('login-btn');
-  const pwd = document.getElementById('password').value;
-  err.textContent = '';
+  var errEl = el('auth-error');
+  var btn   = el('login-btn');
+  var pwd   = el('password').value;
+  errEl.textContent = '';
 
-  if (!pwd) { err.textContent='Please enter your password.'; return; }
+  if (!pwd) { errEl.textContent = 'Please enter your password.'; return; }
 
-  if (role === 'team') {
-    const tid = document.getElementById('team-select').value;
-    if (!tid) { err.textContent='Please select your team first.'; return; }
-    btn.disabled=true; btn.textContent='Signing in…';
+  if (_role === 'team') {
+    var tid = el('team-select').value;
+    if (!tid) { errEl.textContent = 'Please select your team first.'; return; }
+    btn.disabled = true; btn.textContent = 'Signing in…';
 
-    // Build email: team_name lowercase with underscores + @bfl.in
-    const tname  = teams.find(t=>t.id===tid)?.team_name || tid;
-    const temail = tname.toLowerCase().replace(/\s+/g,'_') + '@bfl.in';
-    const { error } = await sb.auth.signInWithPassword({
-      email: temail, password: pwd
-    });
-    if (error) {
-      err.textContent='❌ Wrong password. Contact the auctioneer.';
-      btn.disabled=false; btn.textContent='Enter Auction Room'; return;
+    var tname  = (_teams.find(function(t){return t.id===tid;})||{}).team_name || tid;
+    var temail = tname.toLowerCase().replace(/\s+/g,'_') + '@bfl.in';
+    var res    = await sb.auth.signInWithPassword({ email:temail, password:pwd });
+    if (res.error) {
+      errEl.textContent = '❌ Wrong password. Contact the auctioneer.';
+      btn.disabled = false; btn.textContent = 'Enter Auction Room'; return;
     }
-    showWelcome('team', teams.find(t=>t.id===tid));
+    await showWelcome('team', _teams.find(function(t){return t.id===tid;}));
 
   } else {
-    btn.disabled=true; btn.textContent='Signing in…';
-    const { error } = await sb.auth.signInWithPassword({
-      email:'admin@bfl.in', password: pwd
-    });
-    if (error) {
-      err.textContent='❌ Incorrect auctioneer password.';
-      btn.disabled=false; btn.textContent='Enter Auction Control'; return;
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    var res2 = await sb.auth.signInWithPassword({ email:'admin@bfl.in', password:pwd });
+    if (res2.error) {
+      errEl.textContent = '❌ Incorrect auctioneer password.';
+      btn.disabled = false; btn.textContent = 'Enter Auction Control'; return;
     }
-    showWelcome('admin', null);
+    await showWelcome('admin', null);
   }
 }
 
+// ── Auto-redirect for already-logged-in users ─────────────────
+async function autoRedirect(user) {
+  if ((user.app_metadata && user.app_metadata.role==='admin') || user.email==='admin@bfl.in') {
+    window.location.href = 'admin.html'; return;
+  }
+  try {
+    var res = await sb.from('teams').select('*').eq('user_id', user.id).maybeSingle();
+    if (res.data) {
+      await loadTeams();
+      await showWelcome('team', res.data);
+      return;
+    }
+  } catch(e) {}
+  await sb.auth.signOut();
+  showScreen('login');
+}
+
+// ── Welcome splash ────────────────────────────────────────────
 async function showWelcome(userRole, team) {
-  document.getElementById('login-screen').style.display   = 'none';
-  document.getElementById('welcome-screen').style.display = '';
   spawnConfetti();
 
   if (userRole === 'admin') {
-    document.getElementById('w-emoji').textContent = '⚙️';
-    document.getElementById('w-title').textContent = 'Welcome, Auctioneer!';
-    document.getElementById('w-team').textContent  = 'BFL IPL 2026 Control Room';
-    document.getElementById('w-stats').innerHTML =
+    showScreen('welcome');
+    el('w-emoji').textContent = '⚙️';
+    el('w-title').textContent = 'Welcome, Auctioneer!';
+    el('w-team').textContent  = 'BFL IPL 2026 Control Room';
+    el('w-stats').innerHTML   =
       '<div class="ws-chip"><strong>🔨</strong><span>Host</span></div>' +
       '<div class="ws-chip"><strong>Full</strong><span>Access</span></div>';
-    // Show progress bar + redir text, hide rules button
-    const redir = document.getElementById('w-redir');
-    const barWrap = document.getElementById('w-bar-wrap');
-    const rulesWrap = document.getElementById('w-rules-btn-wrap');
-    if (redir)    { redir.textContent = 'Loading auction control…'; redir.style.display = ''; }
-    if (barWrap)  barWrap.style.display = '';
-    if (rulesWrap) rulesWrap.style.display = 'none';
+    el('w-redir').textContent  = 'Loading auction control…';
+    el('w-redir').style.display = '';
+    el('w-bar-wrap').style.display = '';
+    el('w-rules-btn-wrap').style.display = 'none';
     animateBar(2000);
-    setTimeout(() => window.location.href='admin.html', 2200);
+    setTimeout(function(){ window.location.href='admin.html'; }, 2200);
     return;
   }
 
-  const name = team?.team_name || 'Your Team';
-  document.getElementById('w-emoji').textContent = emoji(name);
-  document.getElementById('w-title').textContent = 'Welcome Back!';
-  document.getElementById('w-team').textContent  = name;
+  showScreen('welcome');
+  var name = (team && team.team_name) || 'Your Team';
+  el('w-emoji').textContent = teamEmoji(name);
+  el('w-title').textContent = 'Welcome Back!';
+  el('w-team').textContent  = name;
 
-  const c = code(name);
+  var c = teamCode(name);
   if (c) {
-    const logo = document.getElementById('w-ipl-logo');
-    logo.src = IPL_LOGO(c); logo.style.display='block';
-    logo.onload = () => logo.classList.add('loaded');
+    var logo = el('w-ipl-logo');
+    logo.src = IPL_LOGO(c);
+    logo.style.display = 'block';
+    logo.onload = function(){ logo.classList.add('loaded'); };
   }
 
-  // Fetch stats from DB
   try {
-    const { data:td } = await sb.rpc('get_my_team');
-    if (td?.found) {
-      const purse  = Number(td.purse_remaining).toFixed(1);
-      const rtmRem = Math.max(0, (td.rtm_cards_total||0)-(td.rtm_cards_used||0));
-      document.getElementById('w-stats').innerHTML =
-        `<div class="ws-chip"><strong>₹${purse}</strong><span>Purse (Cr)</span></div>` +
-        `<div class="ws-chip"><strong>${td.player_count||0}/12</strong><span>Players</span></div>` +
-        `<div class="ws-chip"><strong>${rtmRem}</strong><span>RTM Cards</span></div>`;
+    var td = (await sb.rpc('get_my_team')).data;
+    if (td && td.found) {
+      var purse  = Number(td.purse_remaining).toFixed(1);
+      var rtmRem = Math.max(0,(td.rtm_cards_total||0)-(td.rtm_cards_used||0));
+      el('w-stats').innerHTML =
+        '<div class="ws-chip"><strong>₹'+purse+'</strong><span>Purse (Cr)</span></div>' +
+        '<div class="ws-chip"><strong>'+(td.player_count||0)+'/12</strong><span>Players</span></div>' +
+        '<div class="ws-chip"><strong>'+rtmRem+'</strong><span>RTM Cards</span></div>';
     }
   } catch(_) {}
-  // Team users go to rules first — button there navigates to auction.html
 }
 
 function animateBar(ms) {
-  const b = document.getElementById('w-bar');
-  if (!b) return;
+  var b = el('w-bar'); if (!b) return;
   b.style.animation = 'none'; void b.offsetHeight;
-  b.style.animation = 'bar-fill ' + (ms/1000) + 's ease forwards';
+  b.style.animation = 'bar-fill '+(ms/1000)+'s ease forwards';
 }
 
-async function autoRedirect(user) {
-  if (user.app_metadata?.role==='admin' || user.email==='admin@bfl.in') { window.location.href='admin.html'; return; }
-  const { data:t } = await sb.from('teams').select('*').eq('user_id',user.id).maybeSingle();
-  if (t) {
-    document.getElementById('login-screen').style.display = 'none';
-    await loadTeams();
-    await showWelcome('team', t);
-    return;
-  }
-  await sb.auth.signOut();
-}
-
+// ── Confetti ──────────────────────────────────────────────────
 function spawnConfetti() {
-  const layer = document.getElementById('clayer');
-  const cols  = ['#f0b429','#38a169','#3b82f6','#8b5cf6','#e53e3e','#f97316'];
-  for (let i=0;i<55;i++) {
-    const d = document.createElement('div');
-    const s = 5+Math.random()*8;
-    d.className = 'cdot';
-    d.style.cssText = `left:${Math.random()*100}vw;top:${Math.random()*55}vh;width:${s}px;height:${s}px;background:${cols[~~(Math.random()*cols.length)]};border-radius:${Math.random()>.5?'50%':'2px'};animation-delay:${Math.random()*.7}s;animation-duration:${.7+Math.random()*.9}s;`;
-    layer.appendChild(d);
-    setTimeout(()=>d.remove(),2000);
+  var layer = el('clayer');
+  var cols  = ['#f0b429','#38a169','#3b82f6','#8b5cf6','#e53e3e','#f97316'];
+  for (var i=0;i<50;i++) {
+    (function(){
+      var d = document.createElement('div');
+      var s = 5+Math.random()*8;
+      d.className = 'cdot';
+      d.style.cssText = 'left:'+Math.random()*100+'vw;top:'+Math.random()*55+'vh;width:'+s+'px;height:'+s+'px;background:'+cols[~~(Math.random()*cols.length)]+';border-radius:'+(Math.random()>.5?'50%':'2px')+';animation-delay:'+Math.random()*.7+'s;animation-duration:'+(0.7+Math.random()*.9)+'s;';
+      layer.appendChild(d);
+      setTimeout(function(){ d.remove(); }, 2000);
+    })();
   }
 }
 
-// ── Rules carousel ──────────────────────────────────────────
-const RULES = [
-  {
-    step: 'Overview',
-    title: '🏏 Welcome to BFL IPL 2026 Auction',
-    body: `You are a <strong>franchise owner</strong> competing to build the best IPL squad within your budget.
-<ul>
-  <li>Each team starts with a <strong class="rule-tag tag-gold">₹120 Cr purse</strong></li>
-  <li>You must sign exactly <strong class="rule-tag tag-blue">12 players</strong> to complete your squad</li>
-  <li>Auction runs in <strong>sets</strong> (individual) and <strong>set auctions</strong> (simultaneous bidding)</li>
-  <li>The auctioneer controls the pace — watch the screen at all times</li>
-  <li>This is a <strong>real-money free</strong> fantasy game — for bragging rights only 🏆</li>
-</ul>`
-  },
-  {
-    step: 'Purse & Bidding',
-    title: '💰 Purse & How to Bid',
-    body: `<ul>
-  <li>Your remaining purse is always shown in the <strong>top-right corner</strong> — watch it carefully</li>
-  <li>Minimum bid increment is <strong class="rule-tag tag-gold">₹0.25 Cr</strong> per step</li>
-  <li>The bid input auto-fills the minimum valid next bid — you can raise it</li>
-  <li>Press <strong>Enter</strong> or tap <strong>Bid</strong> to submit. Keyboard shortcut: <strong>B</strong> to focus the bid box</li>
-  <li>If you are outbid, the bid button re-appears immediately — be fast!</li>
-  <li>You can <strong class="rule-tag tag-red">Undo</strong> your own bid once (before the next bid comes in)</li>
-  <li>You <strong>cannot bid</strong> if your purse is too low or if adding this player would exceed squad limits</li>
-</ul>`
-  },
-  {
-    step: 'Squad Rules',
-    title: '👥 Building Your Squad',
-    body: `Your 12-player squad must satisfy IPL composition rules:
-<ul>
-  <li><strong class="rule-tag tag-blue">Min 1</strong> Wicket-Keeper (WK)</li>
-  <li><strong class="rule-tag tag-blue">Min 2</strong> Batters (BAT)</li>
-  <li><strong class="rule-tag tag-blue">Min 3</strong> Bowlers (BOWL)</li>
-  <li><strong class="rule-tag tag-blue">Min 2</strong> All-Rounders (AR)</li>
-  <li><strong class="rule-tag tag-blue">Min 1</strong> Uncapped player (UC)</li>
-  <li><strong class="rule-tag tag-red">Max 4</strong> Overseas players (OS)</li>
-  <li><strong class="rule-tag tag-red">Max 3</strong> players from any single IPL franchise</li>
-</ul>
-The <strong>Squad Composition bar</strong> on your sidebar shows real-time status.
-<span class="rule-tag tag-red">Red chips</span> = unmet requirements. Plan ahead!`
-  },
-  {
-    step: 'Retentions & RTM',
-    title: '🔄 Retentions & Right to Match',
-    body: `<ul>
-  <li><strong class="rule-tag tag-gold">Retained players</strong> are pre-assigned to your squad before auction — their cost is already deducted from your purse</li>
-  <li>Some teams have <strong class="rule-tag tag-purple">RTM cards</strong> (Right to Match) — shown in the navbar</li>
-  <li>When a player you previously owned goes to another team, you can <strong>exercise RTM</strong> to match their winning bid and take the player</li>
-  <li>You have a <strong>timer</strong> to decide — do not let it expire or you automatically decline</li>
-  <li>RTM is a <strong>one-shot</strong> per card — use them wisely</li>
-  <li>The <strong class="rule-tag tag-gold">Advantage</strong> badge means your team has special privileges this auction (ask your auctioneer)</li>
-</ul>`
-  },
-  {
-    step: 'Set Auctions',
-    title: '⚡ Set Auctions (Simultaneous Bidding)',
-    body: `During a <strong>Set Auction</strong>, multiple players go live at the same time:
-<ul>
-  <li>All players in the set are shown as cards — bid on any or all of them</li>
-  <li>There is a <strong>shared countdown timer</strong> for the whole set</li>
-  <li>Your purse is checked <strong>across all your winning bids</strong> simultaneously — you cannot overcommit</li>
-  <li>When the timer ends, the auctioneer closes the set: highest bidder per player wins</li>
-  <li>Players with <strong>no bids</strong> go unsold and may be re-auctioned individually later</li>
-  <li>You can undo a set bid while the timer is still running</li>
-</ul>`
-  },
-  {
-    step: 'Strategy Tips',
-    title: '🧠 Strategy & Tips',
-    body: `<ul>
-  <li><strong>Keep a buffer:</strong> Always hold ₹3–5 Cr back. You need at least <span class="rule-tag tag-gold">₹0.5 Cr × remaining slots</span> to fill your squad</li>
-  <li><strong>Watch the sidebar:</strong> The All Teams table shows every team's purse — bid harder when rivals run low</li>
-  <li><strong>Role gaps:</strong> If you need bowlers and few remain, you may be forced to overpay. Plug gaps early</li>
-  <li><strong>Overseas slots:</strong> Only 4 per squad — high-value OS players get expensive. Pick 4 carefully</li>
-  <li><strong>IPL franchise cap:</strong> Max 3 from any IPL team — don't lock yourself out of the best players</li>
-  <li><strong>Bid fast</strong> in set auctions — cards only update when you bid, not in real-time on the card</li>
-  <li>If the auctioneer pauses or resets, sit tight — everything resumes exactly where it left off</li>
-</ul>`
-  },
-  {
-    step: 'During the Auction',
-    title: '📡 Live Auction Interface',
-    body: `<ul>
-  <li>The <strong>Live Auction panel</strong> shows the current player, base price, current highest bid, 2nd highest, and timer</li>
-  <li>A <strong class="rule-tag tag-green">green (You)</strong> label means you are currently winning — your Bid button is replaced by Undo</li>
-  <li>The <strong>Last Result banner</strong> shows the outcome of the previous player (sold / unsold)</li>
-  <li>Your <strong>My Squad</strong> sidebar updates live as you win players</li>
-  <li>If you lose connection, a <strong class="rule-tag tag-red">banner appears at the top</strong> — the system keeps polling in the background so you won't miss bids</li>
-  <li>The <strong>timer turns red</strong> and blinks in the final 5 seconds — be ready</li>
-  <li>When no auction is active, the <strong>Recent Results</strong> feed shows latest sales</li>
-</ul>`
-  },
-  {
-    step: "You're Ready!",
-    title: "✅ You're All Set — Good Luck!",
-    body: `<ul>
-  <li>Tap <strong>Enter Auction Room</strong> below to join the live session</li>
-  <li>The auctioneer will start the first player when everyone is ready</li>
-  <li>Keep this tab open and your screen on during bidding</li>
-  <li>Do not share your password or log in from multiple devices</li>
-  <li>If something looks wrong, tell the auctioneer — do not close and reopen</li>
-</ul>
-<div style="margin-top:14px;text-align:center;font-size:22px;">🏏 &nbsp; May the best franchise win! &nbsp; 🏆</div>`
-  },
+// ── Rules carousel ────────────────────────────────────────────
+var _ri = 0; // current rule index
+
+var RULES = [
+  { step:'Overview', title:'🏏 Welcome to BFL IPL 2026 Auction',
+    body:'You are a <strong>franchise owner</strong> competing to build the best IPL squad within your budget.<ul>' +
+         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹120 Cr purse</span></li>' +
+         '<li>Sign exactly <span class="rule-tag rtag-blue">12 players</span> to complete your squad</li>' +
+         '<li>Auction runs in individual slots and <strong>set auctions</strong> (simultaneous bidding)</li>' +
+         '<li>The auctioneer controls the pace — watch the screen at all times</li>' +
+         '<li>Real-money free fantasy game — for bragging rights only 🏆</li></ul>' },
+
+  { step:'Purse & Bidding', title:'💰 Purse & How to Bid',
+    body:'<ul><li>Your remaining purse is shown in the <strong>top-right corner</strong> at all times</li>' +
+         '<li>Minimum bid increment is <span class="rule-tag rtag-gold">₹0.25 Cr</span> per step</li>' +
+         '<li>Bid input auto-fills the minimum valid next bid — you can raise it</li>' +
+         '<li>Press <strong>Enter</strong> or tap <strong>Bid</strong> to submit</li>' +
+         '<li>If outbid, the bid button reappears immediately — be fast!</li>' +
+         '<li>You can <span class="rule-tag rtag-red">Undo</span> your own bid once before the next bid arrives</li>' +
+         '<li>You cannot bid if your purse is too low or squad limits would be exceeded</li></ul>' },
+
+  { step:'Squad Rules', title:'👥 Building Your Squad',
+    body:'Your 12-player squad must satisfy IPL composition rules:<ul>' +
+         '<li><span class="rule-tag rtag-blue">Min 1</span> Wicket-Keeper (WK)</li>' +
+         '<li><span class="rule-tag rtag-blue">Min 2</span> Batters (BAT)</li>' +
+         '<li><span class="rule-tag rtag-blue">Min 3</span> Bowlers (BOWL)</li>' +
+         '<li><span class="rule-tag rtag-blue">Min 2</span> All-Rounders (AR)</li>' +
+         '<li><span class="rule-tag rtag-blue">Min 1</span> Uncapped player (UC)</li>' +
+         '<li><span class="rule-tag rtag-red">Max 4</span> Overseas players (OS)</li>' +
+         '<li><span class="rule-tag rtag-red">Max 3</span> from any single IPL franchise</li></ul>' +
+         'The <strong>Squad Composition bar</strong> on your sidebar shows real-time status.' },
+
+  { step:'Retentions & RTM', title:'🔄 Retentions & Right to Match',
+    body:'<ul><li><span class="rule-tag rtag-gold">Retained players</span> are pre-assigned — cost already deducted from your purse</li>' +
+         '<li>Some teams have <span class="rule-tag rtag-purple">RTM cards</span> (Right to Match) — shown in the navbar</li>' +
+         '<li>When a player you previously owned goes to another team, you can exercise RTM to match their bid</li>' +
+         '<li>You have a <strong>timer</strong> to decide — let it expire and you auto-decline</li>' +
+         '<li>RTM is <strong>one-shot per card</strong> — use them wisely</li></ul>' },
+
+  { step:'Set Auctions', title:'⚡ Set Auctions (Simultaneous Bidding)',
+    body:'During a <strong>Set Auction</strong>, multiple players go live at the same time:<ul>' +
+         '<li>All set players shown as cards — bid on any or all</li>' +
+         '<li>Shared countdown timer for the whole set</li>' +
+         '<li>Your purse is checked <strong>across all your winning bids</strong> — you cannot overcommit</li>' +
+         '<li>Timer ends → auctioneer closes set → highest bidder per player wins</li>' +
+         '<li>Players with no bids go unsold and may be re-auctioned individually</li>' +
+         '<li>You can undo a set bid while the timer is still running</li></ul>' },
+
+  { step:'Strategy Tips', title:'🧠 Strategy & Tips',
+    body:'<ul><li><strong>Keep a buffer:</strong> Hold ₹3–5 Cr back — you need <span class="rule-tag rtag-gold">₹0.5 Cr × remaining slots</span></li>' +
+         '<li><strong>Watch the sidebar:</strong> All Teams table shows every purse — bid harder when rivals run low</li>' +
+         '<li><strong>Role gaps:</strong> Plug gaps early or be forced to overpay later</li>' +
+         '<li><strong>Overseas:</strong> Only 4 slots — pick those 4 carefully</li>' +
+         '<li><strong>IPL cap:</strong> Max 3 from any one franchise — plan ahead</li>' +
+         '<li><strong>Bid fast</strong> in set auctions</li></ul>' },
+
+  { step:'Live Interface', title:'📡 Live Auction Interface',
+    body:'<ul><li>Live Auction panel shows player, base price, current highest bid, 2nd highest, and timer</li>' +
+         '<li><span class="rule-tag rtag-green">Green (You)</span> label means you are winning — Bid becomes Undo</li>' +
+         '<li>The Last Result banner shows outcome of the previous player</li>' +
+         '<li>My Squad sidebar updates live as you win players</li>' +
+         '<li>If you lose connection, a <span class="rule-tag rtag-red">red banner</span> appears — system keeps polling</li>' +
+         '<li>Timer turns red and blinks in the final 5 seconds — be ready</li></ul>' },
+
+  { step:"You're Ready!", title:"✅ You're All Set — Good Luck!",
+    body:'<ul><li>Tap <strong>Enter Auction Room</strong> below to join the live session</li>' +
+         '<li>The auctioneer will start the first player when everyone is ready</li>' +
+         '<li>Keep this tab open and your screen on during bidding</li>' +
+         '<li>Do not share your password or log in from multiple devices</li>' +
+         '<li>If something looks wrong, tell the auctioneer — do not close and reopen</li></ul>' +
+         '<div style="margin-top:12px;text-align:center;font-size:20px;">🏏 &nbsp; May the best franchise win! &nbsp; 🏆</div>' }
 ];
 
-let _rulesIdx = 0;
-
 function showRules() {
-  const splash = document.getElementById('ws-splash');
-  const rules  = document.getElementById('ws-rules');
-  if (splash) splash.style.display = 'none';
-  if (rules)  rules.style.display  = '';
-  const card = document.querySelector('.card');
-  if (card) {
-    card.style.maxWidth  = '560px';
-    card.style.overflow  = 'visible';
-    card.style.transition = 'max-width 0.3s ease';
-  }
-  _rulesIdx = 0;
-  renderRulesCard();
+  _ri = 0;
+  renderRule();
+  // Widen the card slightly for rules content
+  var card = document.querySelector('.login-card');
+  if (card) card.style.maxWidth = '520px';
+  showScreen('rules');
 }
 
-function renderRulesCard() {
-  const r   = RULES[_rulesIdx];
-  const card = document.getElementById('rules-card');
-  const dots = document.getElementById('rules-dots');
-  const prev = document.getElementById('rules-prev');
-  const next = document.getElementById('rules-next');
+function renderRule() {
+  var r    = RULES[_ri];
+  var card = el('rules-card');
+  var dots = el('rules-dots');
+  var prev = el('rules-prev');
+  var next = el('rules-next');
+  var lbl  = el('rules-page-lbl');
+  if (!card || !r) return;
 
   card.innerHTML =
-    '<div class="rules-step">' + (_rulesIdx+1) + ' / ' + RULES.length + ' — ' + r.step + '</div>' +
-    '<div class="rules-title">' + r.title + '</div>' +
-    '<div class="rules-body">'  + r.body  + '</div>';
+    '<div class="rules-step">'+r.step+'</div>' +
+    '<div class="rules-title">'+r.title+'</div>' +
+    '<div class="rules-body">'+r.body+'</div>';
+
+  if (lbl) lbl.textContent = (_ri+1)+' / '+RULES.length;
 
   if (dots) dots.innerHTML = RULES.map(function(_,i){
-    return '<div class="rules-dot'+(i===_rulesIdx?' active':'')+'" onclick="rulesGoTo('+i+')"></div>';
+    return '<div class="rules-dot'+(_ri===i?' active':'')+'" onclick="rulesGoTo('+i+')"></div>';
   }).join('');
 
-  if (prev) prev.disabled = (_rulesIdx === 0);
+  if (prev) prev.disabled = (_ri === 0);
   if (next) {
-    if (_rulesIdx === RULES.length - 1) {
-      next.textContent = '🏏 Enter Auction Room';
-      next.classList.add('finish');
-    } else {
-      next.textContent = 'Next →';
-      next.classList.remove('finish');
-    }
+    var last = (_ri === RULES.length-1);
+    next.textContent = last ? '🏏 Enter Auction Room' : 'Next →';
+    if (last) next.classList.add('finish'); else next.classList.remove('finish');
   }
 }
 
 function rulesNav(dir) {
-  if (dir > 0 && _rulesIdx === RULES.length - 1) {
-    window.location.href = 'auction.html';
-    return;
+  if (dir > 0 && _ri === RULES.length-1) {
+    window.location.href = 'auction.html'; return;
   }
-  _rulesIdx = Math.max(0, Math.min(RULES.length - 1, _rulesIdx + dir));
-  renderRulesCard();
+  _ri = Math.max(0, Math.min(RULES.length-1, _ri+dir));
+  renderRule();
 }
 
-function rulesGoTo(idx) {
-  _rulesIdx = idx;
-  renderRulesCard();
-}
+function rulesGoTo(i) { _ri = i; renderRule(); }
 
-// Unified keyboard handler
+// ── Keyboard navigation ───────────────────────────────────────
 document.addEventListener('keydown', function(e) {
-  var loginEl = document.getElementById('login-screen');
-  var rulesEl = document.getElementById('ws-rules');
-  var loginVisible = loginEl && loginEl.style.display !== 'none';
-  var rulesVisible = rulesEl && rulesEl.style.display === '';
-  if (e.key === 'Enter' && loginVisible) { doLogin(); return; }
-  if (!rulesVisible) return;
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); rulesNav(1); }
-  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); rulesNav(-1); }
+  var login   = el('screen-login').style.display   !== 'none';
+  var rules   = el('screen-rules').style.display   !== 'none';
+  if (e.key === 'Enter' && login)  { doLogin(); return; }
+  if (e.key === 'ArrowRight' && rules) { e.preventDefault(); rulesNav(1);  return; }
+  if (e.key === 'ArrowLeft'  && rules) { e.preventDefault(); rulesNav(-1); return; }
 });
 </script>
 </body>

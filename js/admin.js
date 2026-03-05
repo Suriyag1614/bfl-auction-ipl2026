@@ -54,6 +54,16 @@ function getIPLLogoUrl(code) {
   const c = (code||'').trim().toUpperCase();
   return `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png`;
 }
+// IPL 25 Fantasy Avg tier helper
+function avgTier(v) {
+  if (!v) return { cls:'', label:'—', color:'var(--muted)', badge:'' };
+  const n = Number(v);
+  if (n >= 120) return { cls:'avg-elite', label:n.toFixed(1), color:'#fbbf24', badge:'Elite' };
+  if (n >=  90) return { cls:'avg-good',  label:n.toFixed(1), color:'var(--green)', badge:'Good' };
+  if (n >=  60) return { cls:'avg-fair',  label:n.toFixed(1), color:'#60a5fa', badge:'Fair' };
+  return         { cls:'avg-weak',  label:n.toFixed(1), color:'#94a3b8', badge:'Weak' };
+}
+
 
 const el  = id => document.getElementById(id);
 const fmt = v  => '₹' + Number(v).toFixed(2) + ' Cr';
@@ -334,6 +344,32 @@ async function pauseAuction() {
   toast('Paused', 'info'); await loadAuctionState();
 }
 
+// #13 — Panic cancel: stop live player, return to Available (no sale, no unsold mark)
+async function cancelLiveAuction() {
+  const playerName = currentState?.current_player?.name || 'current player';
+  if (!await confirm2(
+    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared. No purse changes.`,
+    { title:'Cancel Live Auction', icon:'✕', danger:true }
+  )) return;
+  clearError(); clearAutoSell(); stopTimer();
+  // Reset state back to waiting — purses are NOT affected (no bid was accepted)
+  const { error } = await sb.from('auction_state').update({
+    status: 'waiting',
+    current_player_id: null,
+    current_highest_bid: 0,
+    current_highest_team_id: null,
+    second_highest_bid: 0,
+    second_highest_team_id: null,
+    bid_timer_end: null,
+    rtm_pending: false,
+    rtm_team_id: null,
+  }).eq('id', 1);
+  if (error) return showError('Cancel failed: ' + error.message);
+  toast('✕ Auction cancelled — ' + playerName + ' back to Available', 'warn');
+  await Promise.all([loadAuctionState(), loadPlayers()]);
+  renderPlayerList();
+}
+
 async function resumeAuction() {
   clearError();
   const { data, error } = await sb.rpc('resume_auction');
@@ -449,6 +485,24 @@ async function restartAuction() {
   } catch (err) {
     showError('Restart failed: ' + err.message);
   }
+}
+
+// #14 — Queue all unsold players for re-auction (mark them as available again)
+async function queueAllUnsold() {
+  const count = unsoldIds.size;
+  if (!count) { toast('No unsold players to re-queue', 'info'); return; }
+  if (!await confirm2(
+    `Remove **Unsold** mark from all **${count}** unsold players?\nThey return to Available and can be re-auctioned.`,
+    { title:'Re-queue All Unsold', icon:'↻' }
+  )) return;
+  clearError();
+  // Delete all unsold_log entries
+  const ids = [...unsoldIds];
+  const { error } = await sb.from('unsold_log').delete().in('player_id', ids);
+  if (error) return showError('Re-queue failed: ' + error.message);
+  toast('↻ ' + count + ' unsold player(s) returned to Available', 'success');
+  await Promise.all([loadPlayers(), loadAuctionState()]);
+  renderPlayerList();
 }
 
 async function resetSet() {
@@ -579,7 +633,7 @@ async function toggleAutopilot() {
     ? 'Enable Autopilot?\n\nServer auto-sells when timer expires, even if you are logged out.'
     : 'Disable Autopilot?\n\nYou must manually click Force Sell after timer expires.';
   if (!await confirm2(msg, { title:'Autopilot', icon:'🤖' })) return;
-  const { error } = await sb.rpc('set_autopilot', { enabled: newVal });
+  const { data, error } = await sb.rpc('set_autopilot', { enabled: newVal });
   if (error) return showError(error.message);
   autopilotEnabled = newVal;
   renderAutopilotBtn();
@@ -661,6 +715,8 @@ function renderAuctionState(state) {
   el('resume-btn').style.display     = isPaused ? 'inline-flex' : 'none';
   // Force sell: always visible when live or paused (not hidden until timer hits 0)
   el('force-sell-btn').style.display = (isLive || isPaused) ? 'inline-flex' : 'none';
+  const cancelLiveBtn = el('cancel-live-btn');
+  if (cancelLiveBtn) cancelLiveBtn.style.display = (isLive || isPaused) ? 'inline-flex' : 'none';
   const resetSetBtn = el('reset-set-btn');
   if (resetSetBtn) resetSetBtn.style.display = (state.status === 'set_live') ? 'inline-flex' : 'none';
 
@@ -725,11 +781,11 @@ function renderAuctionState(state) {
     // Mini stats grid — 4 chips, using shared .adv-stat CSS (matches auction page)
     const statsGrid = el('cp-stats-grid');
     if (statsGrid) {
-      const avg = p.bfl_avg ? Number(p.bfl_avg).toFixed(1) : '—';
-      const avgCls = p.bfl_avg > 100 ? 'good' : p.bfl_avg > 50 ? '' : p.bfl_avg ? 'warn' : '';
+      const _at = avgTier(p.bfl_avg);
+      const avg = _at.label; const avgCls = _at.cls;
       const roleShort = { 'Batter':'BAT', 'Bowler':'BOWL', 'All-Rounder':'AR', 'Wicket-Keeper':'WK' }[p.role] || (p.role||'—').substring(0,4);
       statsGrid.innerHTML = [
-        { val: avg,                                  cls: avgCls,                                        lbl: '📊 BFL Avg' },
+        { val: avg,                                  cls: avgCls,                                        lbl: '📊 IPL 25 Avg' },
         { val: roleShort,                            cls: '',                                            lbl: '🎭 Role' },
         { val: p.is_overseas ? '🌍 OS' : '🇮🇳 IND',  cls: p.is_overseas ? 'warn' : 'good',               lbl: 'Origin' },
         { val: p.is_uncapped ? 'UNCAP' : 'CAP',     cls: p.is_uncapped ? 'good' : '',                   lbl: '🎖 Status' },
@@ -1242,7 +1298,7 @@ function exportHistoryPDF() {
       </table>
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
-    const w = window.open('','_blank'); if (w) { const doc = w.document; doc.open(); doc.write(html); doc.close(); }
+    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
     toast('📄 History PDF opened','success');
   } catch(e) { toast('PDF failed','error'); }
 }
@@ -1272,7 +1328,7 @@ async function exportAllSquadsPDF() {
         return `<tr style="${tp.is_retained?'background:#fffbeb;':''}">
           <td>${i+1}</td><td><strong>${p.name||'?'}</strong>${tags?`<br><small style="color:#999;">${tags}</small>`:''}</td>
           <td>${p.role||'—'}</td><td>${p.ipl_team||'—'}</td>
-          <td style="text-align:center;">${p.bfl_avg?Number(p.bfl_avg).toFixed(1):'—'}</td>
+          <td style="text-align:center;color:${avgTier(p.bfl_avg).color};font-weight:700;">${avgTier(p.bfl_avg).label}</td>
           <td>₹${p.base_price||0}</td>
           <td style="font-weight:700;color:#b7791f;">₹${Number(tp.sold_price||0).toFixed(2)}</td>
         </tr>`;
@@ -1287,7 +1343,7 @@ async function exportAllSquadsPDF() {
           <span>UC: <strong>${uc}</strong></span>
           <span>RTN: <strong>${rtn}</strong></span>
         </div>
-        <table><thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>BFL Avg</th><th>Base</th><th>Paid</th></tr></thead>
+        <table><thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>IPL 25 Avg</th><th>Base</th><th>Paid</th></tr></thead>
         <tbody>${rows_html}</tbody></table>
       </div>`;
     }).join('');
@@ -1312,7 +1368,7 @@ async function exportAllSquadsPDF() {
       ${sections}
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
-    const w = window.open('','_blank'); if (w) { const doc = w.document; doc.open(); doc.write(html); doc.close(); }
+    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
     toast('📄 All Squads PDF opened','success');
   } catch(e) { toast('PDF failed: '+e.message,'error'); console.error(e); }
 }
@@ -1323,7 +1379,7 @@ async function exportAllSquadsCSV() {
     const { data: allSquads } = await sb.from('team_players')
       .select('sold_price,is_retained,is_rtm,team_id,team:teams(team_name),player:players_master(name,role,ipl_team,is_overseas,is_uncapped,base_price,bfl_avg)');
     if (!allSquads) { toast('No squad data','warn'); return; }
-    const headers = ['BFL Team','#','Player','Role','IPL Team','BFL Avg','Base (Cr)','Paid (Cr)','Retained','RTM','Overseas','Uncapped'];
+    const headers = ['BFL Team','#','Player','Role','IPL Team','IPL 25 Avg','Base (Cr)','Paid (Cr)','Retained','RTM','Overseas','Uncapped'];
     const byTeam = {};
     allSquads.forEach(r => {
       const tn = r.team?.team_name||r.team_id;
@@ -1397,11 +1453,11 @@ async function exportTeamSquadPDF() {
         <div class="stat"><div class="stat-val">${uc}</div><div class="stat-lbl">Uncapped</div></div>
         <div class="stat"><div class="stat-val">${rtn}</div><div class="stat-lbl">Retained</div></div>
       </div>
-      <table><thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>BFL Avg</th><th>Base</th><th>Paid</th></tr></thead>
+      <table><thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL Team</th><th>IPL 25 Avg</th><th>Base</th><th>Paid</th></tr></thead>
       <tbody>${rows_html}</tbody></table>
       <script>window.onload=()=>window.print();<\/script>
     </body></html>`;
-    const w = window.open('','_blank'); if (w) { const doc = w.document; doc.open(); doc.write(html); doc.close(); }
+    const w = window.open('','_blank'); if (w) { w.document.write(html); w.document.close(); }
     toast('📄 Squad PDF opened','success');
   } catch(e) { toast('PDF failed','error'); }
 }
@@ -1512,15 +1568,15 @@ function renderSquadTable(team) {
             if(p.is_rtm)      tags+='<span class="tag tag-rtm">RTM</span> ';
             if(p.is_overseas) tags+='<span class="tag tag-overseas">OS</span> ';
             if(p.is_uncapped) tags+='<span class="tag tag-uncapped">UC</span>';
-            return `<tr class="${p.is_retained?'row-retained':''}">
-              <td>${i+1}</td>
-              <td><strong>${p.name}</strong></td>
-              <td>${p.role}</td>
-              <td>${p.ipl_team||'&#8212;'}</td>
-              <td>&#8377;${p.base_price}</td>
-              <td style="color:var(--gold);font-family:'Barlow Condensed',sans-serif;font-weight:700;">&#8377;${Number(p.sold_price).toFixed(2)}</td>
-              <td>${tags||'&#8212;'}</td>
-            </tr>`;
+            return '<tr class="'+(p.is_retained?'row-retained':'')+'">' +
+              '<td>'+(i+1)+'</td>' +
+              '<td><strong>'+p.name+'</strong></td>' +
+              '<td>'+p.role+'</td>' +
+              '<td>'+(p.ipl_team||'&mdash;')+'</td>' +
+              '<td>&#8377;'+p.base_price+'</td>' +
+              '<td style="color:var(--gold);font-family:\'Barlow Condensed\',sans-serif;font-weight:700;">&#8377;'+Number(p.sold_price).toFixed(2)+'</td>' +
+              '<td>'+(tags||'&mdash;')+'</td>' +
+              '</tr>';
           }).join('')}
         </tbody>
       </table>
@@ -2139,7 +2195,7 @@ function renderRTMSetup() {
       <table class="data-table">
         <thead><tr>
           <th>Player</th><th>Role</th><th>IPL Team</th>
-          <th>BFL Avg</th><th>OS/UC</th>
+          <th>IPL 25 Avg</th><th>OS/UC</th>
           <th style="min-width:200px;">Prev BFL Team (for RTM)</th>
           <th>RTM</th>
         </tr></thead>
@@ -2224,3 +2280,5 @@ async function setPrevBFLTeam(playerId, teamName, selectEl) {
   await loadPlayers();
 }
 
+// Hook into switchTab to lazy-load RTM setup
+const _origSwitchTab = typeof switchTab === 'function' ? switchTab : null;

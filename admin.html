@@ -9,7 +9,7 @@
   <title>BFL Auction — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=30">
+  <link rel="stylesheet" href="css/styles.css?v=34">
 </head>
 <body>
 
@@ -141,6 +141,7 @@
           <button class="btn btn-gold"   id="pause-btn"      style="display:none;" onclick="pauseAuction()">⏸ Pause</button>
           <button class="btn btn-blue"   id="resume-btn"     style="display:none;" onclick="resumeAuction()">▶ Resume</button>
           <button class="btn btn-danger" id="force-sell-btn" style="display:none;" onclick="forceSell()">🔨 Force Sell</button>
+          <button class="btn btn-cancel-live btn-sm" id="cancel-live-btn" style="display:none;" onclick="cancelLiveAuction()">✕ Cancel</button>
           <button class="btn btn-ghost btn-sm" id="autopilot-btn" onclick="toggleAutopilot()">🤖 Autopilot: OFF</button>
           <span class="delay-wrap" title="Auto-sell delay (seconds after timer hits 0)">
             <span style="font-size:11px;color:var(--muted);">Delay:</span>
@@ -149,6 +150,7 @@
           </span>
           <button class="btn btn-ghost btn-sm" onclick="resetState()">↺ Reset State</button>
           <button class="btn btn-warning btn-sm" id="reset-set-btn" onclick="resetSet()" style="display:none;">⚡ Reset Set</button>
+          <button class="btn btn-requeue btn-sm" onclick="queueAllUnsold()" title="Re-queue all unsold players">↻ Re-queue Unsold</button>
           <div style="margin-left:auto;display:flex;gap:6px;">
             <button class="btn btn-warning btn-sm" onclick="resetDay()">🔄 Reset Day</button>
             <button class="btn btn-danger btn-sm" onclick="restartAuction()">⚠️ Full Restart</button>
@@ -389,10 +391,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=30"></script>
+<script src="js/localstorage-shim.js?v=34"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=30"></script>
-<script src="js/supabaseClient.js?v=30"></script>
-<script src="js/admin.js?v=30"></script>
+<script src="js/modal.js?v=34"></script>
+<script src="js/supabaseClient.js?v=34"></script>
+<script src="js/admin.js?v=34"></script>
 </body>
 </html>
