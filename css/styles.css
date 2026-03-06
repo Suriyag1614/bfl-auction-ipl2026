@@ -2168,3 +2168,14 @@ input[type="number"].dm-input { width: 90px; flex: none; }
   .set-hl-cards { flex-direction: column; }
   .set-hl-card  { max-width: 100%; }
 }
+
+/* ── Timer ended state (v47) ─────────────────────────────────── */
+.timer.timer-ended {
+  color: var(--muted) !important;
+  text-shadow: none !important;
+}
+.timer-progress-bar.tp-ended {
+  width: 0% !important;
+  background: var(--border) !important;
+  box-shadow: none !important;
+}

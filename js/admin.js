@@ -230,6 +230,8 @@ function _updateDmCountdown() {
 }
 
 async function saveDaySettings() {
+  const saveBtn = el('dm-save-btn');
+  if (saveBtn) { if (saveBtn._inFlight) return; saveBtn._inFlight = true; saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
   const today    = new Date().toLocaleDateString('en-CA');
   const start    = el('dm-start')?.value;
   const end      = el('dm-end')?.value;
@@ -255,6 +257,7 @@ async function saveDaySettings() {
 
   const dayEl = el('stat-day');
   if (dayEl) { dayEl.textContent = 'Day ' + _dmDayVal; dayEl.closest('.stat-chip')?.style.setProperty('border-color','var(--gold-dim)'); }
+  if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
   toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · Single ' + bidTimer + 's · Set ' + setTimer + 's', 'success');
   closeDayModal();
 }
@@ -545,27 +548,43 @@ async function cancelLiveAuction() {
     { title:'Cancel Live Auction', icon:'', danger:true }
   )) return;
   clearError(); clearAutoSell(); stopTimer();
-  // Reset state back to waiting — purses are NOT affected (no bid was accepted)
+  // Refund the leading bidder's purse before clearing state
+  const cs = currentState;
+  if (cs?.current_highest_team_id && cs?.current_highest_bid > 0) {
+    const { data: teamRow } = await sb.from('teams')
+      .select('purse_remaining').eq('id', cs.current_highest_team_id).maybeSingle();
+    if (teamRow) {
+      await sb.from('teams').update({
+        purse_remaining: Number(teamRow.purse_remaining) + Number(cs.current_highest_bid)
+      }).eq('id', cs.current_highest_team_id);
+    }
+  }
   const { error } = await sb.from('auction_state').update({
     status: 'waiting',
+    last_player_result: 'cancelled',
     current_player_id: null,
     current_highest_bid: 0,
     current_highest_team_id: null,
     second_highest_bid: 0,
     second_highest_team_id: null,
+    prev_bid_team_id: null,
+    prev_bid_team_purse: null,
     bid_timer_end: null,
     rtm_pending: false,
     rtm_team_id: null,
   }).eq('id', 1);
   if (error) return showError('Cancel failed: ' + error.message);
-  toast('Auction Cancelled', playerName + ' returned to Available pool', 'warn');
+  toast('Auction Cancelled', playerName + ' returned to Available pool — purse refunded', 'warn');
   await Promise.all([loadAuctionState(), loadPlayers()]);
   renderPlayerList();
 }
 
 async function resumeAuction() {
   clearError();
+  const btn = el('resume-btn') || el('resume-auction-btn');
+  if (btn) { if (btn._inFlight) return; btn._inFlight = true; btn.disabled = true; }
   const { data, error } = await sb.rpc('resume_auction');
+  if (btn) { btn._inFlight = false; btn.disabled = false; }
   if (error) return showError(error.message);
   if (!data.success) return showError(data.error);
   toast('Auction Resumed', 'Bidding is now live again', 'success'); await loadAuctionState();
@@ -661,6 +680,8 @@ async function restartAuction() {
       current_highest_team_id: null,
       second_highest_bid: 0,
       second_highest_team_id: null,
+      prev_bid_team_id: null,
+      prev_bid_team_purse: null,
       bid_timer_end: null,
       rtm_pending: false,
       rtm_team_id: null,
@@ -669,6 +690,7 @@ async function restartAuction() {
       last_player_result: null,
       last_sold_to_team: null,
       last_sold_price: null,
+      last_set_name: null,
       current_set_name: null
     }).eq('id', 1);
     if (e5) throw new Error('Reset state: ' + e5.message);
@@ -1084,15 +1106,16 @@ function startTimer(endTime) {
     const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
     const t   = el('timer');
     if (!t) { stopTimer(); return; }
-    t.textContent = rem + 's';
-    t.className   = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
+    const expired = rem <= 0;
+    t.textContent = expired ? 'Ended' : rem + 's';
+    t.className   = 'timer' + (expired ? ' timer-ended' : rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
     const pct   = Math.max(0, Math.min(100, (rem / totalSec) * 100));
     const bar   = document.getElementById('admin-timer-bar');
     if (bar) {
       bar.style.width = pct + '%';
-      bar.className = 'timer-progress-bar ' + (rem <= 5 ? 'tp-red' : rem <= 10 ? 'tp-amber' : 'tp-green');
+      bar.className = 'timer-progress-bar ' + (expired ? 'tp-ended' : rem <= 5 ? 'tp-red' : rem <= 10 ? 'tp-amber' : 'tp-green');
     }
-    if (rem === 0) {
+    if (expired) {
       stopTimer();
       if (!autopilotEnabled) {
         // Show warning countdown, then fire at 12s
@@ -2050,7 +2073,7 @@ function quickLaunchSearch(q) {
   }).slice(0, 10);
 
   if (!results.length) {
-    dd.innerHTML = '<div class="ql-empty">No available players match "' + q + '"</div>';
+    dd.innerHTML = '<div class="ql-empty">No available players match &ldquo;' + _esc(q) + '&rdquo;</div>';
     dd.classList.add('open'); return;
   }
   dd.innerHTML = results.map((p, i) => {
@@ -2060,8 +2083,8 @@ function quickLaunchSearch(q) {
         onmouseover="_qlFocusIdx=${i};qlHighlight()">
       <img src="${p.image_url || SIL}" alt=""
         onerror="this.onerror=null;this.src='${SIL}'">
-      <span class="ql-item-name">${p.name}</span>
-      <span class="ql-item-meta">${p.role || '?'} · ${p.ipl_team || '?'} · ₹${p.base_price}Cr</span>
+      <span class="ql-item-name">${_esc(p.name)}</span>
+      <span class="ql-item-meta">${_esc(p.role||'?')} · ${_esc(p.ipl_team||'?')} · ₹${p.base_price}Cr</span>
       ${isUnsold ? '<span class="ql-unsold-badge">Unsold</span>' : ''}
     </div>`;
   }).join('');
@@ -2276,24 +2299,12 @@ async function cancelSetAuction() {
   )) return;
   clearError();
 
-  // Set auction_state back to waiting, clear set_name
-  const { error: stateErr } = await sb.from('auction_state')
-    .update({ status:'waiting', current_set_name: null, current_player_id: null,
-              current_highest_bid: 0, current_highest_team_id: null,
-              second_highest_bid: 0, second_highest_team_id: null,
-              bid_timer_end: null, rtm_pending: false })
-    .eq('id', 1);
-  if (stateErr) return showError(stateErr.message);
+  // Use cancel_set_auction RPC — refunds all slot bidders' purses atomically
+  const { data: cancelData, error: cancelErr } = await sb.rpc('cancel_set_auction', { p_set_name: setName });
+  if (cancelErr) return showError(cancelErr.message);
+  if (!cancelData?.success) return showError(cancelData?.error || 'Cancel failed');
 
-  // Return all live slots back to waiting
-  const { error: slotsErr } = await sb.from('auction_slots')
-    .update({ status: 'waiting', current_highest_bid: 0,
-              current_highest_team_id: null, second_highest_bid: 0,
-              second_highest_team_id: null, bid_timer_end: null })
-    .eq('set_name', setName).eq('status', 'live');
-  if (slotsErr) console.warn('Slots reset warn:', slotsErr.message);
-
-  toast('Set Cancelled', setName + ' cancelled — players returned to pool', 'warn');
+  toast('Set Cancelled', setName + ' cancelled — players returned to pool, purses refunded', 'warn');
   clearInterval(adminSetTimerInterval);
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   activeSetSlots = [];
@@ -2421,7 +2432,10 @@ async function addRetention() {
   const errEl    = el('ret-error');
   if (!teamId || !playerId) { errEl.textContent = 'Select team and player.'; return; }
   errEl.textContent = '';
+  const addBtn = el('ret-add-btn');
+  if (addBtn) { if (addBtn._inFlight) return; addBtn._inFlight = true; addBtn.disabled = true; addBtn.textContent = 'Adding…'; }
   const { data, error } = await sb.rpc('add_retention', { p_team_id:teamId, p_player_id:playerId, p_price:price, p_slot:slot });
+  if (addBtn) { addBtn._inFlight = false; addBtn.disabled = false; addBtn.textContent = 'Add Retention'; }
   if (error) { errEl.textContent = error.message; return; }
   if (!data?.success) { errEl.textContent = data?.error||'Error'; return; }
   toast('Retention Added', 'Slot ' + slot + ' — ' + price + ' Cr', 'success');
