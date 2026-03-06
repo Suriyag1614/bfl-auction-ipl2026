@@ -52,7 +52,8 @@ function getIPLColors(code) {
 function getIPLLogoUrl(code) {
   if (!code) return null;
   const c = (code||'').trim().toUpperCase();
-  return `https://documents.iplt20.com/ipl/${c}/logos/Logooutline/${c}outline.png`;
+  // Local images folder — e.g. images/CSKoutline.png
+  return `images/${c}outline.png`;
 }
 // IPL 25 Fantasy Avg tier helper
 function avgTier(v) {
@@ -79,21 +80,160 @@ function dbt(key, fn, ms = 350) {
 async function doLogout() { await sb.auth.signOut(); location.href = 'index.html'; }
 
 
-// ── Auction Day setter ────────────────────────────────────────
-async function promptSetDay() {
+// ── Auction Day Modal ────────────────────────────────────────
+let _dmDayVal = 1;
+let _dmCountdownInterval = null;
+let _dmBidTimerOverride = false;  // true = user manually set bid timer
+
+function promptSetDay() {
   const current = el('stat-day')?.textContent?.replace('Day ','').trim();
-  const val = window.prompt('Set Auction Day (1, 2, 3…):', current === '—' ? '1' : (current || '1'));
-  if (val === null) return; // cancelled
-  const n = parseInt(val);
-  if (isNaN(n) || n < 1 || n > 10) { toast('Invalid Day', 'Enter a number between 1 and 10', 'warn'); return; }
-  await setAuctionDay(n);
+  _dmDayVal = parseInt(current) || 1;
+  el('dm-day-val').textContent = _dmDayVal;
+
+  // Default date = today
+  const today = new Date().toLocaleDateString('en-CA');
+  if (!el('dm-date').value) el('dm-date').value = today;
+
+  // Reset bid timer override state
+  _dmBidTimerOverride = false;
+  _dmUpdateBidTimerHint();
+
+  el('day-modal').style.display = 'flex';
+  _dmCountdownInterval = setInterval(_updateDmCountdown, 500);
+  _updateDmCountdown();
+
+  // Live update on any input change
+  ['dm-date','dm-start','dm-end','dm-bid-timer'].forEach(id => {
+    const inp = el(id);
+    if (inp) {
+      inp.oninput = () => {
+        if (id === 'dm-bid-timer') _dmBidTimerOverride = true;
+        _updateDmCountdown();
+        _dmUpdateBidTimerHint();
+      };
+      inp.onchange = inp.oninput;
+    }
+  });
 }
-async function setAuctionDay(day) {
-  const { error } = await sb.from('auction_state').update({ auction_day: day }).eq('id', 1);
-  if (error) { toast('Error Occurred', 'Could not update auction day: ' + error.message, 'error'); return; }
+
+function closeDayModal() {
+  el('day-modal').style.display = 'none';
+  clearInterval(_dmCountdownInterval);
+  _dmCountdownInterval = null;
+}
+
+function adjustDay(delta) {
+  _dmDayVal = Math.min(20, Math.max(1, _dmDayVal + delta));
+  el('dm-day-val').textContent = _dmDayVal;
+}
+
+function dmResetBidTimer() {
+  _dmBidTimerOverride = false;
+  _dmAutoCalcBidTimer();
+  _dmUpdateBidTimerHint();
+}
+
+function _dmAutoCalcBidTimer() {
+  // Derive default bid timer from session length — 1% of total session duration, capped 30-120s
+  const date  = el('dm-date')?.value;
+  const start = el('dm-start')?.value;
+  const end   = el('dm-end')?.value;
+  if (!date || !start || !end) return;
+  const sessionMs = new Date(date+'T'+end).getTime() - new Date(date+'T'+start).getTime();
+  if (sessionMs <= 0) return;
+  const auto = Math.min(120, Math.max(30, Math.round(sessionMs / 1000 / 100 / 5) * 5));
+  el('dm-bid-timer').value = auto;
+}
+
+function _dmUpdateBidTimerHint() {
+  const hint = el('dm-timer-hint');
+  const calc = el('dm-auto-calc');
+  if (!hint || !calc) return;
+  if (_dmBidTimerOverride) {
+    hint.textContent = 'Custom';
+    hint.style.color = 'var(--gold)';
+    calc.style.opacity = '1';
+  } else {
+    hint.textContent = 'Auto';
+    hint.style.color = 'var(--muted)';
+    calc.style.opacity = '0.5';
+    _dmAutoCalcBidTimer();
+  }
+}
+
+function _updateDmCountdown() {
+  const date  = el('dm-date')?.value;
+  const start = el('dm-start')?.value;
+  const end   = el('dm-end')?.value;
+  const cdEl  = el('dm-countdown');
+  const barEl = el('dm-countdown-bar');
+  if (!cdEl) return;
+
+  if (!date || !end) { cdEl.textContent = '—'; return; }
+
+  const endMs   = new Date(date + 'T' + end).getTime();
+  const startMs = (date && start) ? new Date(date + 'T' + start).getTime() : null;
+  const rem     = endMs - Date.now();
+  const totalDur = startMs ? (endMs - startMs) : null;
+
+  if (rem <= 0) {
+    cdEl.textContent = 'Session ended';
+    cdEl.className = 'dm-countdown-val dm-cd-ended';
+    if (barEl) barEl.style.width = '0%';
+    return;
+  }
+
+  const h   = Math.floor(rem / 3600000);
+  const m   = Math.floor((rem % 3600000) / 60000);
+  const s   = Math.floor((rem % 60000) / 1000);
+  const hms = (h > 0 ? h + 'h ' : '') + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+  cdEl.textContent = hms;
+
+  // Color and bar
+  const pct = totalDur ? Math.max(0, Math.min(100, (rem / totalDur) * 100)) : 100;
+  const cls = pct > 50 ? 'dm-cd-green' : pct > 25 ? 'dm-cd-amber' : 'dm-cd-red';
+  cdEl.className = 'dm-countdown-val ' + cls;
+  if (barEl) {
+    barEl.style.width = pct + '%';
+    barEl.className = 'dm-countdown-bar ' + cls;
+  }
+
+  // Auto-update bid timer if not overridden
+  if (!_dmBidTimerOverride) _dmAutoCalcBidTimer();
+}
+
+async function saveDaySettings() {
+  const date     = el('dm-date')?.value;
+  const start    = el('dm-start')?.value;
+  const end      = el('dm-end')?.value;
+  const bidTimer = parseInt(el('dm-bid-timer')?.value) || 60;
+
+  if (!date) { toast('Missing Date', 'Please select an auction date', 'warn'); return; }
+
+  const startIso    = start ? new Date(date + 'T' + start).toISOString() : null;
+  const endIso      = end   ? new Date(date + 'T' + end).toISOString()   : null;
+  const update = { auction_day: _dmDayVal };
+  if (startIso) update.day_start = startIso;
+  if (endIso)   update.day_end   = endIso;
+
+  const { error } = await sb.from('auction_state').update(update).eq('id', 1);
+  if (error) { toast('Save Failed', error.message, 'error'); return; }
+
+  // Save bid timer default separately — column may not exist yet (run SQL migration first)
+  try {
+    await sb.from('auction_state').update({ bid_timer_default: bidTimer }).eq('id', 1);
+  } catch(_) { /* Column not yet created — run: ALTER TABLE auction_state ADD COLUMN bid_timer_default INTEGER DEFAULT 60 */ }
+
   const dayEl = el('stat-day');
-  if (dayEl) { dayEl.textContent = 'Day ' + day; dayEl.closest('.stat-chip').style.borderColor = 'var(--gold-dim)'; }
-  toast('Auction Day Set', 'Now showing Day ' + day + ' on all screens', 'success');
+  if (dayEl) { dayEl.textContent = 'Day ' + _dmDayVal; dayEl.closest('.stat-chip').style.borderColor = 'var(--gold-dim)'; }
+  toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · ' + bidTimer + 's bid timer published', 'success');
+  closeDayModal();
+}
+
+async function setAuctionDay(day) {
+  // Legacy stub
+  const { error } = await sb.from('auction_state').update({ auction_day: day }).eq('id', 1);
+  if (error) { toast('Error Occurred', error.message, 'error'); return; }
 }
 async function init() {
   const { data: { session } } = await sb.auth.getSession();
@@ -819,9 +959,9 @@ function renderAuctionState(state) {
       const roleShort = { 'Batter':'BAT', 'Bowler':'BOWL', 'All-Rounder':'AR', 'Wicket-Keeper':'WK' }[p.role] || (p.role||'—').substring(0,4);
       statsGrid.innerHTML = [
         { val: avg,                                  cls: avgCls,                                        lbl: 'IPL 25 Avg' },
-        { val: roleShort,                            cls: '',                                            lbl: 'Role' },
-        { val: p.is_overseas ? 'OS' : 'IND',  cls: p.is_overseas ? 'warn' : 'good',               lbl: 'Origin' },
-        { val: p.is_uncapped ? 'UNCAP' : 'CAP',     cls: p.is_uncapped ? 'good' : '',                   lbl: 'Status' },
+        { val: (p.role||'—').toUpperCase(),           cls: '',                                            lbl: 'Role' },
+        { val: (playerCountry(p)||'—').toUpperCase(), cls: p.is_overseas ? 'warn' : 'good',               lbl: 'Country' },
+        { val: p.is_uncapped ? 'UNCAPPED' : 'CAPPED', cls: p.is_uncapped ? 'good' : '',                   lbl: 'Status' },
       ].map((s,i) => `<div class="adv-stat" style="animation-delay:${i*0.05}s">
         <div class="adv-stat-val ${s.cls}"${(s.lbl==='IPL'&&colors)?` style="color:${colors.primary}"`:''}>${s.val}</div>
         <div class="adv-stat-lbl">${s.lbl}</div>
@@ -896,15 +1036,28 @@ function startAdminRTMCountdown(endMs) {
 function stopAdminRTMCountdown() { clearInterval(adminRTMInterval); adminRTMInterval = null; }
 
 // ─── TIMER ────────────────────────────────────────────────────
+let _adminTimerEndMs = 0, _adminTimerTotalSec = 60;
 function startTimer(endTime) {
   stopTimer(); clearAutoSell();
-  const endMs = new Date(endTime).getTime();
+  const newEndMs = new Date(endTime).getTime();
+  if (Math.abs(newEndMs - _adminTimerEndMs) > 2000) {
+    _adminTimerEndMs    = newEndMs;
+    _adminTimerTotalSec = Math.max(1, Math.ceil((newEndMs - Date.now()) / 1000));
+  }
+  const endMs    = newEndMs;
+  const totalSec = _adminTimerTotalSec;
   function tick() {
     const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
     const t   = el('timer');
     if (!t) { stopTimer(); return; }
     t.textContent = rem + 's';
     t.className   = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
+    const pct   = Math.max(0, Math.min(100, (rem / totalSec) * 100));
+    const bar   = document.getElementById('admin-timer-bar');
+    if (bar) {
+      bar.style.width = pct + '%';
+      bar.className = 'timer-progress-bar ' + (rem <= 5 ? 'tp-red' : rem <= 10 ? 'tp-amber' : 'tp-green');
+    }
     if (rem === 0) {
       stopTimer();
       if (!autopilotEnabled) {
@@ -1814,6 +1967,12 @@ function toast(titleOrMsg, subtitleOrType, typeArg) {
   while (c.children.length > 5) c.removeChild(c.firstChild);
   setTimeout(() => d.classList.add('toast-exit'), dur - 350);
   setTimeout(() => d.remove(), dur + 200);
+}
+
+function playerCountry(p) {
+  if (!p) return '—';
+  if (p.country) return p.country;
+  return p.is_overseas ? 'Overseas' : 'India';
 }
 function showError(msg) {
   const e = el('admin-error');

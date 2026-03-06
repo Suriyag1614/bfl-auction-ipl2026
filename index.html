@@ -174,7 +174,7 @@ var _role  = 'team';
 var _teams = [];
 
 // ── Helpers ───────────────────────────────────────────────────
-var IPL_LOGO = function(c){ return 'https://documents.iplt20.com/ipl/'+c+'/logos/Logooutline/'+c+'outline.png'; };
+var IPL_LOGO = function(c){ return 'images\\' + c + 'outline.png'; };
 var EMOJIS = [['GUJARAT','⚡'],['MUMBAI',''],['PUNJAB','♦️'],['CHENNAI',''],['KOLKATA',''],['DELHI',''],['RAJASTHAN',''],['SUNRISERS',''],['ROYAL',''],['LUCKNOW','']];
 var ICODES = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],['ROYAL','RCB'],['LUCKNOW','LSG']];
 function teamEmoji(n){ var u=(n||'').toUpperCase(); var m=EMOJIS.find(function(x){return u.includes(x[0]);}); return m?m[1]:''; }
@@ -377,7 +377,7 @@ var _ri = 0; // current rule index
 var RULES = [
   { step:'Overview', title:'Welcome to BFL IPL 2026 Auction',
     body:'You are a <strong>franchise owner</strong> competing to build the best IPL squad within your budget.<ul>' +
-         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹120 Cr purse</span></li>' +
+         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹100 Cr purse</span></li>' +
          '<li>Sign exactly <span class="rule-tag rtag-blue">12 players</span> to complete your squad</li>' +
          '<li>Auction runs in individual slots and <strong>set auctions</strong> (simultaneous bidding)</li>' +
          '<li>The auctioneer controls the pace — watch the screen at all times</li>' +
