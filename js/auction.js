@@ -328,9 +328,9 @@ async function applyState(state) {
       else if (state.last_player_result === 'unsold' && state.last_player)
         noMsg.innerHTML = '<strong>' + state.last_player.name + '</strong> went <strong>unsold</strong>';
       else if (state.status === 'paused')
-        noMsg.textContent = '⏸ Auction is paused';
+        noMsg.textContent = 'Auction is paused';
       else
-        noMsg.textContent = '⏳ Waiting for admin to start next player…';
+        noMsg.textContent = 'Waiting for admin to start next player…';
     }
     await Promise.all([loadSquad(), loadStats()]);
     renderMiniHistory('mini-history-wrap');
@@ -345,7 +345,7 @@ function renderLastResult(state) {
 
   if (state.last_player_result === 'set_done') {
     cont.innerHTML = `<div class="last-result-banner sold-banner">
-      <div style="font-size:22px;margin-right:10px;">⚡</div>
+      <div class="lr-set-badge">SET</div>
       <div style="flex:1;min-width:0;"><div class="lr-name">Set Complete</div>
         <div class="lr-detail">${state.last_sold_to_team||''}</div></div>
       <div class="lr-price lr-sold">DONE</div></div>`; return;
@@ -478,10 +478,10 @@ function renderLivePlayer(state, paused) {
   const metaRow = el('player-meta-row');
   if (metaRow) {
     metaRow.innerHTML = [
-      { icon:'🎭', label:'Role',    val: p.role || '—' },
-      { icon:'🏏', label:'IPL',     val: p.ipl_team || '—', color: colors?.primary },
-      { icon:'📁', label:'Set',     val: p.set_name || '—' },
-      { icon:'💰', label:'Base',    val: fmt(p.base_price) },
+      { icon:'', label:'Role',    val: p.role || '—' },
+      { icon:'BAT', label:'IPL',     val: p.ipl_team || '—', color: colors?.primary },
+      { icon:'', label:'Set',     val: p.set_name || '—' },
+      { icon:'', label:'Base',    val: fmt(p.base_price) },
     ].map(m => `<div class="adv-card-meta-badge">${m.icon} <strong${m.color?` style="color:${m.color}"`:''}>${m.val}</strong></div>`).join('');
   }
 
@@ -502,10 +502,10 @@ function renderLivePlayer(state, paused) {
     const tier = avgTier(p.bfl_avg);
     const roleShort = { 'Batter':'BAT', 'Bowler':'BOWL', 'All-Rounder':'AR', 'Wicket-Keeper':'WK' }[p.role] || p.role?.substring(0,4) || '—';
     statsGrid.innerHTML = [
-      { val: tier.label, cls: tier.cls, icon:'📊', lbl: 'IPL 25 Avg' },
-      { val: roleShort,                        cls: '',                               icon:'🎭', lbl: 'Role' },
-      { val: p.is_overseas ? '🌍 OS' : '🇮🇳 IND', cls: p.is_overseas ? 'warn' : 'good', icon:'', lbl: 'Origin' },
-      { val: p.is_uncapped ? 'UNCAP' : 'CAP',  cls: p.is_uncapped ? 'good' : '',     icon:'🎖', lbl: 'Status' },
+      { val: tier.label, cls: tier.cls, icon:'', lbl: 'IPL 25 Avg' },
+      { val: roleShort,                        cls: '',                               icon:'', lbl: 'Role' },
+      { val: p.is_overseas ? 'OS' : 'IND', cls: p.is_overseas ? 'warn' : 'good', icon:'', lbl: 'Origin' },
+      { val: p.is_uncapped ? 'UNCAP' : 'CAP',  cls: p.is_uncapped ? 'good' : '',     icon:'', lbl: 'Status' },
     ].map((s,i) => `<div class="adv-stat" style="animation-delay:${i*0.05}s">
       <div class="adv-stat-val ${s.cls}"${colors&&s.lbl==='IPL'?` style="color:${colors.primary}"`:''}>${s.val}</div>
       <div class="adv-stat-lbl">${s.icon} ${s.lbl}</div>
@@ -518,7 +518,7 @@ function renderLivePlayer(state, paused) {
   const leadEl = el('leading-team');
   if (leadEl) {
     leadEl.textContent = state.highest_team
-      ? state.highest_team.team_name + (isMe ? ' 🟢 (You)' : '') : '—';
+      ? state.highest_team.team_name + (isMe ? ' — You' : '') : '—';
     leadEl.style.color = isMe ? 'var(--green)' : '';
   }
   // Outbid alert: fire when you lose the lead
@@ -619,7 +619,7 @@ function renderRTMPending(state) {
 
   cont.innerHTML = `
     <div class="rtm-banner${isRTMTeam?' rtm-my-turn':''}">
-      <div class="rtm-icon">🔄</div>
+      <div class="rtm-icon">RTM</div>
       <div class="rtm-title">RTM OPPORTUNITY</div>
       ${deadlineMs ? `
         <div style="text-align:center;margin-bottom:10px;">
@@ -634,7 +634,7 @@ function renderRTMPending(state) {
           <div class="rtm-player-sub">${p?.role||''} · ${p?.ipl_team||''}${p?.prev_bfl_team?' · Prev BFL: '+p.prev_bfl_team:''}</div>
           <div class="rtm-price">Winning bid: <strong>${price}</strong></div>
           <div class="rtm-team-msg">${isRTMTeam
-            ? `<span style="color:var(--gold);">✦ Your franchise can RTM at ${price}!</span>`
+            ? `<span style="color:var(--gold);font-weight:800;">Your franchise can RTM at ${price}</span>`
             : `<span style="color:var(--muted);">Waiting for <strong>${state.rtm_team?.team_name||'—'}</strong> to decide…</span>`
           }</div>
         </div>
@@ -646,9 +646,9 @@ function renderRTMPending(state) {
             onmouseup="cancelRTMHold()" ontouchend="cancelRTMHold()"
             onmouseleave="cancelRTMHold()">
             <span class="rtm-hold-fill" id="rtm-hold-fill"></span>
-            ✓ Exercise RTM — Match ${price}
+            Exercise RTM — Match ${price}
           </button>
-          <button class="btn btn-ghost" onclick="exerciseRTM(false)">✗ Decline RTM</button>
+          <button class="btn btn-ghost" onclick="exerciseRTM(false)">Decline RTM</button>
         </div>
         <div class="rtm-hold-hint">Hold button for 2s to confirm RTM</div>` : ''}
     </div>`;
@@ -701,7 +701,7 @@ async function renderSetInPlayerCard(state) {
     .eq('set_name', state.current_set_name).eq('status', 'live');
   if (error) { console.warn('[renderSetInPlayerCard]', error.message); return; }
   if (!slots?.length) {
-    el('player-card').innerHTML = `<div class="no-auction-msg">⚡ ${state.current_set_name} — closing…</div>`;
+    el('player-card').innerHTML = `<div class="no-auction-msg"><span class="set-closing-badge">SET</span> ${state.current_set_name} — closing…</div>`;
     return;
   }
 
@@ -713,7 +713,7 @@ async function renderSetInPlayerCard(state) {
     el('player-card').innerHTML = `
       <div class="set-auction-header" style="margin-bottom:12px;">
         <div>
-          <span style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:var(--gold);">⚡ ${state.current_set_name||''}</span>
+          <span class="set-live-label">${state.current_set_name||''}</span>
           <span style="margin-left:8px;color:var(--muted);font-size:13px;">${slots.length} players — bid simultaneously</span>
         </div>
         <div class="set-timer-wrap">
@@ -754,7 +754,7 @@ function buildSlotCardHTML(slot) {
   const avg     = _t.label;
   const avgColor = _t.color;
   const roleShort = {'Batter':'BAT','Bowler':'BOWL','All-Rounder':'AR','Wicket-Keeper':'WK'}[p.role] || (p.role||'—').substring(0,3);
-  const origin  = p.is_overseas ? '🌍' : '🇮🇳';
+  const origin  = p.is_overseas ? 'OS' : 'IN';
 
   // Bid area
   const bidArea = isMe
@@ -831,7 +831,7 @@ function buildSlotBidHTML(slot) {
       <div class="sc-bid-amt${isMe?' sc-bid-me':hasBid?' sc-bid-other':''}">
         ${hasBid ? fmt(slot.current_highest_bid) : '<span class="sc-no-bid">—</span>'}
       </div>
-      <div class="sc-bid-team">${hasBid ? (slot.highest_team?.team_name||'')+(isMe?' 🟢':'') : ''}</div>
+      <div class="sc-bid-team">${hasBid ? (slot.highest_team?.team_name||'')+(isMe?' ✓':'') : ''}</div>
     </div>
     <div class="sc-bid-sep"></div>
     <div class="sc-bid-col">
@@ -975,7 +975,7 @@ function renderAllTeams() {
       <td>
         <span style="font-family:'Barlow Condensed',sans-serif;font-weight:${isMe?'800':'700'};font-size:14px;">${t.team_name}</span>
         ${t.is_advantage_holder?' <span class="tag tag-advantage" style="font-size:9px;padding:1px 4px;">⭐</span>':''}
-        ${rtmRem>0?` <span class="tag tag-rtm" style="font-size:9px;padding:1px 4px;">🔄×${rtmRem}</span>`:''}
+        ${rtmRem>0?` <span class="tag tag-rtm" style="font-size:9px;padding:1px 4px;">RTM×${rtmRem}</span>`:''}
         ${isMe?' <span style="font-size:10px;color:var(--gold);font-style:italic;">(you)</span>':''}
       </td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:${purseColor};white-space:nowrap;">
@@ -1050,16 +1050,18 @@ async function placeBid() {
   const amount = Math.round(raw / 0.25) * 0.25;
   if (Math.abs(amount - raw) > 0.001) { errEl.textContent = 'Must be 0.25 Cr increments'; input.value = amount.toFixed(2); toast('Invalid Amount', 'Bids must be in 0.25 Cr increments', 'warn'); return; }
   if (amount > myTeam.purse_remaining) { errEl.textContent = 'Insufficient purse'; toast('Insufficient Purse', 'Bid of ' + fmt(amount) + ' exceeds remaining ' + fmt(myTeam.purse_remaining), 'error'); return; }
-  bidBtn.disabled = true; bidBtn.classList.add('pending'); bidBtn.textContent = '⏳';
+  if (bidBtn._inFlight) return; bidBtn._inFlight = true;
+  bidBtn.disabled = true; bidBtn.classList.add('pending'); bidBtn.textContent = 'Placing…';
   _bidTs = Date.now();
   const { data, error } = await sb.rpc('place_bid', { bid_amount: amount });
   const ms = Date.now() - _bidTs;
+  bidBtn._inFlight = false;
   bidBtn.disabled = false; bidBtn.classList.remove('pending'); bidBtn.textContent = 'Bid';
   const latEl = el('bid-latency');
   if (latEl) {
     const cls = ms < 400 ? 'fast' : ms < 1200 ? 'slow' : 'veryslow';
     latEl.className = 'bid-latency ' + cls;
-    latEl.textContent = '⚡ Server response: ' + ms + 'ms';
+    latEl.textContent = 'Server response: ' + ms + 'ms';
     setTimeout(() => { if (latEl) { latEl.textContent = ''; latEl.className = 'bid-latency'; } }, 5000);
   }
   if (error)          { errEl.textContent = error.message; toast('Bid Rejected', error.message, 'error'); return; }
@@ -1074,7 +1076,7 @@ async function placeBid() {
 
 async function undoBid() {
   const btn = el('undo-bid-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  if (btn && btn._inFlight) return; if (btn) { btn._inFlight = true; btn.disabled = true; btn.textContent = 'Placing…'; }
   const { data, error } = await sb.rpc('undo_bid');
   if (btn) { btn.disabled = false; btn.textContent = '↩ Undo'; }
   if (error || !data?.success) { toast('Cannot Undo', error?.message||data?.error||'Undo not available', 'warn'); return; }
@@ -1112,9 +1114,9 @@ async function placeSetBid(slotId) {
     return;
   }
 
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  if (btn && btn._inFlight) return; if (btn) { btn._inFlight = true; btn.disabled = true; btn.textContent = 'Placing…'; }
   const { data, error } = await sb.rpc('place_set_bid', { p_slot_id: slotId, bid_amount: amount });
-  if (btn) { btn.disabled = false; btn.textContent = 'Bid'; }
+  if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = 'Bid'; }
   if (error || !data?.success) { if (errEl) errEl.textContent = error?.message||data?.error||'Error'; return; }
   toast('Set Bid Placed', fmt(amount) + ' on ' + (document.getElementById('set-card-'+slotId)?.querySelector('.sc-name')?.textContent||'player'), 'success');
   // Store bid amount on card for cross-slot purse calculation
@@ -1125,11 +1127,19 @@ async function placeSetBid(slotId) {
 }
 
 async function undoSetBid(slotId) {
+  const btn = document.querySelector(`#set-card-${slotId} .sc-undo-btn`);
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
   const { data, error } = await sb.rpc('undo_set_bid', { p_slot_id: slotId });
-  if (error || !data?.success) { toast('Cannot Undo', error?.message||data?.error||'Undo not available', 'warn'); return; }
-  toast('Set Bid Undone', 'Your set bid has been reversed', 'info');
+  if (btn) { btn.disabled = false; btn.textContent = '↩'; }
+  if (error || !data?.success) {
+    toast('Cannot Undo', error?.message||data?.error||'Undo not available', 'warn'); return;
+  }
+  // Clear stored bid on this card so cross-slot purse calc is accurate
+  const card = document.getElementById('set-card-' + slotId);
+  if (card) { card.dataset.myBid = '0'; card.classList.remove('sc-leading'); }
+  toast('Set Bid Undone', 'Your bid has been reversed', 'info');
   await refreshPurse();
-  _lastSlotsHash = ''; _lastStateHash = ''; fetchState();
+  _lastSlotsHash = ''; _lastStateHash = ''; await fetchState();
 }
 
 // ── Purse refresh ─────────────────────────────────────────────
@@ -1153,12 +1163,28 @@ async function loadStats() {
       sb.from('team_players').select('sold_price,player_id'),
       sb.from('auction_state').select('unsold_player_ids').eq('id',1).maybeSingle()
     ]);
-    const soldIds   = new Set((soldRows||[]).map(r => r.player_id));
-    const soldCount = soldIds.size;
-    const spent     = (soldRows||[]).reduce((s,r) => s+Number(r.sold_price||0), 0);
+    // Fetch auction_day separately — silently skip if column not yet created via ALTER TABLE
+    let auctionDay = null;
+    try {
+      const { data: dayRow, error: dayErr } = await sb.from('auction_state')
+        .select('auction_day').eq('id',1).maybeSingle();
+      if (!dayErr) auctionDay = dayRow?.auction_day ?? null;
+    } catch(_) {}
+    const soldIds    = new Set((soldRows||[]).map(r => r.player_id));
+    const soldCount  = soldIds.size;
+    const spent      = (soldRows||[]).reduce((s,r) => s+Number(r.sold_price||0), 0);
     const unsoldIds2 = new Set(Array.isArray(st?.unsold_player_ids) ? st.unsold_player_ids : []);
     const unsoldCount = unsoldIds2.size;
     const total = (allP||[]).length;
+
+    // Auction day chip
+    const dayEl = el('as-day');
+    if (dayEl) {
+      const d = auctionDay;
+      dayEl.textContent = d ? 'Day ' + d : '—';
+      const chip = dayEl.closest('.stat-chip');
+      if (chip) chip.style.borderColor = d ? 'var(--gold-dim)' : '';
+    }
 
     if (el('as-total'))     el('as-total').textContent     = total;
     if (el('as-sold'))      el('as-sold').textContent      = soldCount;
@@ -1166,35 +1192,41 @@ async function loadStats() {
     if (el('as-remaining')) el('as-remaining').textContent = Math.max(0, total - soldCount - unsoldCount);
     if (el('as-spent'))     el('as-spent').textContent     = spent.toFixed(2);
 
-    // Role pool counter — available (not sold, not unsold) players per role
+    // Role pool — fill individual stat chips
     const rolePool = {};
     (allP||[]).forEach(p => {
-      if (!soldIds.has(p.id) && !unsoldIds2.has(p.id)) {
+      if (!soldIds.has(p.id) && !unsoldIds2.has(p.id))
         rolePool[p.role] = (rolePool[p.role]||0) + 1;
+    });
+    const rpMap = {
+      'Wicket-Keeper': 'rp-wk',
+      'Batter':        'rp-bat',
+      'Bowler':        'rp-bowl',
+      'All-Rounder':   'rp-ar',
+    };
+    const chipMap = {
+      'Wicket-Keeper': 'as-wk',
+      'Batter':        'as-bat',
+      'Bowler':        'as-bowl',
+      'All-Rounder':   'as-ar',
+    };
+    Object.entries(rpMap).forEach(([role, valId]) => {
+      const n = rolePool[role] || 0;
+      const valEl = el(valId);
+      if (valEl) valEl.textContent = n;
+      const chipEl = el(chipMap[role]);
+      if (chipEl) {
+        // Colour the chip border + value by scarcity
+        const color = n === 0 ? 'var(--red)' : n <= 2 ? '#f6ad55' : '';
+        const chipVal = chipEl.querySelector('.stat-chip-val');
+        if (chipVal) chipVal.style.color = color || 'var(--gold)';
+        chipEl.style.borderColor = n === 0 ? 'rgba(229,62,62,0.4)' : n <= 2 ? 'rgba(246,173,85,0.4)' : '';
       }
     });
-    renderRolePool(rolePool);
   } catch(e) { console.warn('[Stats]', e.message); }
 }
 
-function renderRolePool(pool) {
-  const cont = el('role-pool-wrap'); if (!cont) return;
-  const roles = [
-    { key:'Wicket-Keeper', short:'WK',   icon:'🧤' },
-    { key:'Batter',        short:'BAT',  icon:'🏏' },
-    { key:'Bowler',        short:'BOWL', icon:'⚡' },
-    { key:'All-Rounder',   short:'AR',   icon:'🌟' },
-  ];
-  cont.innerHTML = roles.map(r => {
-    const n = pool[r.key] || 0;
-    const color = n === 0 ? 'var(--red)' : n <= 2 ? '#f6ad55' : 'var(--text2)';
-    return '<div class="role-pool-chip">' +
-      '<span class="rpc-icon">' + r.icon + '</span>' +
-      '<span class="rpc-val" style="color:' + color + ';">' + n + '</span>' +
-      '<span class="rpc-lbl">' + r.short + '</span>' +
-      '</div>';
-  }).join('');
-}
+function renderRolePool(pool) { /* legacy stub — now rendered inline in loadStats */ }
 
 // ── Squad with full validation ────────────────────────────────
 async function loadSquad() {
@@ -1382,7 +1414,7 @@ async function exportSquadPDF() {
         td{padding:7px 10px;border-bottom:1px solid #eee;}
         @media print{body{padding:12px;}}
       </style></head><body>
-      <h1>🏏 ${myTeam.team_name}</h1>
+      <h1>${myTeam.team_name}</h1>
       <div class="sub">BFL IPL 2026 Auction Squad · Generated ${new Date().toLocaleString('en-IN')}</div>
       <div class="stat-row">
         <div class="stat"><div class="stat-val">${list.length}/12</div><div class="stat-lbl">Players</div></div>

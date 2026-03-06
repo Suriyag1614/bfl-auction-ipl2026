@@ -1195,7 +1195,7 @@ select.form-input{cursor:pointer;}
   padding: 3px 10px 3px 6px;
   font-size: 12px;
 }
-.rpc-icon { font-size: 13px; }
+
 .rpc-val  { font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 800; }
 .rpc-lbl  { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
@@ -1382,4 +1382,194 @@ select.form-input{cursor:pointer;}
 @media(max-width:600px){
   .toast-container{ right:10px; left:10px; max-width:100%; top:60px; }
   .toast{ min-width:0; }
+}
+
+/* ── RTM icon (now text badge, not emoji) ── */
+.rtm-icon {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px; font-weight: 900;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  color: #1a1a2e;
+  background: var(--gold);
+  border-radius: 4px;
+  padding: 2px 7px;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+
+/* ── Quick-launch arrow icon ── */
+.ql-icon {
+  font-size: 14px;
+  color: var(--gold);
+  font-weight: 700;
+}
+
+/* ── Navbar BFL logo — pure text mark ── */
+.navbar-logo {
+  font-family: 'Barlow Condensed', sans-serif !important;
+  font-size: 22px !important;
+  font-weight: 900 !important;
+  letter-spacing: 2px;
+  color: var(--gold) !important;
+  text-transform: uppercase;
+}
+
+/* ── Role pool chip labels (now text WK/BAT/BOWL/AR) ── */
+
+
+/* ── Leading indicator "— You" text styling ── */
+.sc-bid-me { color: var(--green) !important; }
+
+/* ── adv-stat-val: Origin (OS/IND) pill ── */
+.adv-stat-val.warn { color: #f6ad55; }
+.adv-stat-val.good { color: var(--green); }
+
+/* ── Bid pending spinner (replaces ⏳) ── */
+.btn.pending {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+.btn.pending::after {
+  content: '';
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  width: 14px; height: 14px;
+  margin: auto;
+  animation: spin 0.7s linear infinite;
+}
+
+/* ── RTM admin badge (now text) ── */
+.rtm-admin-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px; font-weight: 900;
+  letter-spacing: 2px;
+  color: #b794f4;
+}
+
+/* ── Squad comp status labels (no emoji) ── */
+.squad-comp-ok   { color: var(--green); font-weight: 700; }
+.squad-comp-warn { color: #f6ad55;      font-weight: 700; }
+
+/* ── Force Sell btn — ensure no emoji residue ── */
+#force-sell-btn { font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0.5px; }
+
+/* ── SET badge (replaced ⚡ in last-result banner) ── */
+.lr-set-badge {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px; font-weight: 900;
+  letter-spacing: 2px;
+  color: #1a1a2e;
+  background: var(--gold);
+  border-radius: 4px; padding: 2px 7px;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* ── Set closing inline badge ── */
+.set-closing-badge {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px; font-weight: 900;
+  letter-spacing: 1.5px;
+  background: var(--gold); color: #000;
+  border-radius: 3px; padding: 1px 5px;
+  margin-right: 6px;
+}
+
+/* ── Set live label (replaces ⚡ in set header) ── */
+.set-live-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px; font-weight: 900;
+  color: var(--gold);
+}
+
+/* ── sel-icon (now text BFL) ── */
+.sel-icon {
+  font-family: 'Barlow Condensed', sans-serif !important;
+  font-size: 12px !important; font-weight: 900 !important;
+  letter-spacing: 1px;
+  color: var(--gold) !important;
+}
+
+/* ── ws-chip Admin host badge ── */
+.ws-chip strong { font-size: 10px; letter-spacing: 0.5px; }
+
+
+input[type="date"] {
+  color-scheme: dark;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+
+
+/* ══════════════════════════════════════════════════════════════
+   STATS ROWS — two-row layout (v38)
+   Row 1: Day + auction counts   Row 2: Role pool availability
+   ══════════════════════════════════════════════════════════════ */
+
+/* Row 1 — auction meta chips */
+.stats-row-main {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;        /* single line — 6 chips fit easily */
+  padding: 10px 0 6px;
+}
+.stats-row-main .stat-chip {
+  flex: 1;
+  min-width: 0;             /* allow shrink below 88px */
+  max-width: none;
+  padding: 10px 8px;
+  text-align: center;
+}
+.stats-row-main .stat-chip-val { font-size: 24px; }
+
+/* Row 2 — role availability chips */
+.stats-row-roles {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding: 0 0 10px;
+}
+.stats-row-roles .stat-chip {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  padding: 8px 6px;
+  text-align: center;
+  background: rgba(255,255,255,0.025);  /* subtly different to distinguish row 2 */
+}
+.stats-row-roles .stat-chip-val {
+  font-size: 22px;
+  color: var(--gold);
+}
+.stats-row-roles .stat-chip-lbl { font-size: 9px; }
+
+/* Day chip — gold accent */
+.stat-chip-day {
+  border-color: var(--gold-dim) !important;
+}
+.stat-chip-day .stat-chip-val {
+  color: var(--gold);
+  font-size: 20px !important;
+  letter-spacing: -0.5px;
+}
+.stat-chip-day:hover { border-color: var(--gold) !important; }
+
+/* Date input dark calendar picker */
+input[type="date"] { color-scheme: dark; }
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6); cursor: pointer;
+}
+
+/* Mobile: allow wrap on very small screens */
+@media(max-width:480px) {
+  .stats-row-main, .stats-row-roles { flex-wrap: wrap; }
+  .stats-row-main .stat-chip,
+  .stats-row-roles .stat-chip { min-width: 60px; flex: 1 1 60px; }
 }

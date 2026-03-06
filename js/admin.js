@@ -78,6 +78,23 @@ function dbt(key, fn, ms = 350) {
 // ─── INIT ─────────────────────────────────────────────────────
 async function doLogout() { await sb.auth.signOut(); location.href = 'index.html'; }
 
+
+// ── Auction Day setter ────────────────────────────────────────
+async function promptSetDay() {
+  const current = el('stat-day')?.textContent?.replace('Day ','').trim();
+  const val = window.prompt('Set Auction Day (1, 2, 3…):', current === '—' ? '1' : (current || '1'));
+  if (val === null) return; // cancelled
+  const n = parseInt(val);
+  if (isNaN(n) || n < 1 || n > 10) { toast('Invalid Day', 'Enter a number between 1 and 10', 'warn'); return; }
+  await setAuctionDay(n);
+}
+async function setAuctionDay(day) {
+  const { error } = await sb.from('auction_state').update({ auction_day: day }).eq('id', 1);
+  if (error) { toast('Error Occurred', 'Could not update auction day: ' + error.message, 'error'); return; }
+  const dayEl = el('stat-day');
+  if (dayEl) { dayEl.textContent = 'Day ' + day; dayEl.closest('.stat-chip').style.borderColor = 'var(--gold-dim)'; }
+  toast('Auction Day Set', 'Now showing Day ' + day + ' on all screens', 'success');
+}
 async function init() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { location.href = 'index.html'; return; }
@@ -259,7 +276,7 @@ function renderPlayerList() {
       action = '';
     } else {
       badge  = '<span class="avail-label">Available</span>';
-      action = `<button class="btn btn-sm btn-start" onclick="startAuction('${p.id}')">▶ Start</button>`;
+      action = `<button class="btn btn-sm btn-start" onclick="startAuction('${p.id}')">Start</button>`;
     }
     const row = sold ? 'row-sold' : isUnsold ? 'row-unsold' : isCurrent ? 'row-current' : '';
     const img = p.image_url
@@ -314,7 +331,9 @@ function clearFilters() {
 // Any tampered client call will be rejected server-side.
 // ──────────────────────────────────────────────────────────────
 
+let _startInFlight = false;
 async function startAuction(playerId) {
+  if (_startInFlight) return; _startInFlight = true;
   clearError();
   let forceOverride = false;
   const liveStatus = currentState?.status;
@@ -323,7 +342,7 @@ async function startAuction(playerId) {
       liveStatus === 'set_live'
         ? 'A set auction is live. Force-start this player anyway?'
         : 'Another player is live. Force-start this one instead?',
-      { title:'Force Start', icon:'▶', danger:true }
+      { title:'Force Start', icon:'', danger:true }
     );
     if (!ok) return;
     forceOverride = true;
@@ -331,12 +350,12 @@ async function startAuction(playerId) {
   const { data, error } = await sb.rpc('start_auction', { p_player_id: playerId, p_force: forceOverride });
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
-  toast('Auction Started', (data.player||'Player') + ' is now live', 'success');
+  _startInFlight = false; toast('Auction Started', (data.player||'Player') + ' is now live', 'success');
   await loadAuctionState(); renderPlayerList();
 }
 
 async function pauseAuction() {
-  if (!await confirm2('Pause the current auction?', { title:'Pause', icon:'⏸' })) return;
+  if (!await confirm2('Pause the current auction?', { title:'Pause', icon:'' })) return;
   clearError(); clearAutoSell();
   const { data, error } = await sb.rpc('pause_auction');
   if (error) return showError(error.message);
@@ -349,7 +368,7 @@ async function cancelLiveAuction() {
   const playerName = currentState?.current_player?.name || 'current player';
   if (!await confirm2(
     `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared. No purse changes.`,
-    { title:'Cancel Live Auction', icon:'✕', danger:true }
+    { title:'Cancel Live Auction', icon:'', danger:true }
   )) return;
   clearError(); clearAutoSell(); stopTimer();
   // Reset state back to waiting — purses are NOT affected (no bid was accepted)
@@ -383,7 +402,7 @@ async function forceSell() {
   const btn = el('force-sell-btn');
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   const { data, error } = await sb.rpc('force_sell');
-  if (btn) { btn.disabled = false; btn.textContent = '🔨 Force Sell'; }
+  if (btn) { btn.disabled = false; btn.textContent = 'Force Sell'; }
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
   const result = data.result || data.message;
@@ -510,7 +529,7 @@ async function queueAllUnsold() {
 }
 
 async function resetSet() {
-  if (!await confirm2('Abort the live set auction?\nAll held bids will be refunded. Players return to available.', { title:'Reset Set', icon:'⚡', danger:true })) return;
+  if (!await confirm2('Abort the live set auction? All held bids will be refunded and players returned to Available.', { title:'Reset Set', icon:'⚡', danger:true })) return;
   clearError(); clearInterval(adminSetTimerInterval);
   const { data, error } = await sb.rpc('reset_set_auction');
   if (error) return showError(error.message);
@@ -551,7 +570,7 @@ async function resetDay() {
 async function adminExerciseRTM(accept) {
   if (!await confirm2(
     accept ? 'RTM accepted — franchise keeps player at match price.' : 'RTM declined — winning bidder gets the player.',
-    { title: accept ? 'Accept RTM' : 'Decline RTM', icon: '🔄', danger: !accept }
+    { title: accept ? 'Accept RTM' : 'Decline RTM', icon: '', danger: !accept }
   )) return;
   const { data, error } = await sb.rpc('exercise_rtm', { p_accept: accept });
   if (error) return showError(error.message);
@@ -636,7 +655,7 @@ async function toggleAutopilot() {
   const msg = newVal
     ? 'Enable Autopilot?\n\nServer auto-sells when timer expires, even if you are logged out.'
     : 'Disable Autopilot?\n\nYou must manually click Force Sell after timer expires.';
-  if (!await confirm2(msg, { title:'Autopilot', icon:'🤖' })) return;
+  if (!await confirm2(msg, { title:'Autopilot', icon:'' })) return;
   const { data, error } = await sb.rpc('set_autopilot', { enabled: newVal });
   if (error) return showError(error.message);
   autopilotEnabled = newVal;
@@ -657,11 +676,11 @@ function renderAutopilotBtn() {
   const dot = el('autopilot-dot');
   const lbl = el('autopilot-label');
   if (autopilotEnabled) {
-    if (btn) { btn.textContent = '🤖 Autopilot ON';  btn.className = 'btn btn-green btn-sm'; }
+    if (btn) { btn.textContent = 'Autopilot: ON';  btn.className = 'btn btn-green btn-sm'; }
     if (dot) dot.style.background = 'var(--green)';
     if (lbl) lbl.textContent = 'Autopilot ON';
   } else {
-    if (btn) { btn.textContent = '🤖 Autopilot OFF'; btn.className = 'btn btn-ghost btn-sm'; }
+    if (btn) { btn.textContent = 'Autopilot: OFF'; btn.className = 'btn btn-ghost btn-sm'; }
     if (dot) dot.style.background = 'var(--muted)';
     if (lbl) lbl.textContent = 'Autopilot OFF';
   }
@@ -707,6 +726,16 @@ async function loadAuctionState() {
 }
 
 function renderAuctionState(state) {
+  clearError();
+  // Refresh day chip on every state render
+  if (state.auction_day !== undefined) {
+    const dayEl = el('stat-day');
+    if (dayEl) {
+      dayEl.textContent = state.auction_day ? 'Day ' + state.auction_day : '—';
+      const chip = dayEl.closest('.stat-chip');
+      if (chip) chip.style.borderColor = state.auction_day ? 'var(--gold-dim)' : '';
+    }
+  }
   const statusEl = el('auction-status');
   const labels   = { waiting:'Waiting', live:'LIVE', sold:'Sold', paused:'Paused', set_live:'SET LIVE' };
   statusEl.textContent = state.rtm_pending ? 'RTM' : (labels[state.status] || state.status);
@@ -760,10 +789,10 @@ function renderAuctionState(state) {
     const metaBadges = el('cp-meta-badges');
     if (metaBadges) {
       metaBadges.innerHTML = [
-        { icon:'🎭', val: p.role || '—' },
-        { icon:'🏏', val: p.ipl_team || '—', color: colors?.primary },
-        { icon:'📁', val: p.set_name || '—' },
-        { icon:'💰', val: `₹${p.base_price} Cr` },
+        { icon:'', val: p.role || '—' },
+        { icon:'', val: p.ipl_team || '—', color: colors?.primary },
+        { icon:'', val: p.set_name || '—' },
+        { icon:'', val: `₹${p.base_price} Cr` },
       ].map(m => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:13px;
         color:var(--muted);background:rgba(255,255,255,0.04);border:1px solid var(--border);
         border-radius:4px;padding:3px 8px;">
@@ -773,13 +802,13 @@ function renderAuctionState(state) {
 
     // Flags
     let flags = p.is_overseas
-      ? '<span class="tag tag-overseas">🌍 Overseas</span>'
-      : '<span class="tag tag-indian">🇮🇳 Indian</span>';
+      ? '<span class="tag tag-overseas">Overseas</span>'
+      : '<span class="tag tag-indian">Indian</span>';
     flags += p.is_uncapped
       ? ' <span class="tag tag-uncapped">Uncapped</span>'
       : ' <span class="tag tag-capped">Capped</span>';
-    if (p.is_rtm_eligible && !p.is_retained) flags += ' <span class="tag tag-rtm">🔄 RTM</span>';
-    if (p.is_retained) flags += ' <span class="tag tag-retained">📌 Retained</span>';
+    if (p.is_rtm_eligible && !p.is_retained) flags += ' <span class="tag tag-rtm">RTM</span>';
+    if (p.is_retained) flags += ' <span class="tag tag-retained">Retained</span>';
     el('cp-flags').innerHTML = flags;
 
     // Mini stats grid — 4 chips, using shared .adv-stat CSS (matches auction page)
@@ -789,12 +818,12 @@ function renderAuctionState(state) {
       const avg = _at.label; const avgCls = _at.cls;
       const roleShort = { 'Batter':'BAT', 'Bowler':'BOWL', 'All-Rounder':'AR', 'Wicket-Keeper':'WK' }[p.role] || (p.role||'—').substring(0,4);
       statsGrid.innerHTML = [
-        { val: avg,                                  cls: avgCls,                                        lbl: '📊 IPL 25 Avg' },
-        { val: roleShort,                            cls: '',                                            lbl: '🎭 Role' },
-        { val: p.is_overseas ? '🌍 OS' : '🇮🇳 IND',  cls: p.is_overseas ? 'warn' : 'good',               lbl: 'Origin' },
-        { val: p.is_uncapped ? 'UNCAP' : 'CAP',     cls: p.is_uncapped ? 'good' : '',                   lbl: '🎖 Status' },
+        { val: avg,                                  cls: avgCls,                                        lbl: 'IPL 25 Avg' },
+        { val: roleShort,                            cls: '',                                            lbl: 'Role' },
+        { val: p.is_overseas ? 'OS' : 'IND',  cls: p.is_overseas ? 'warn' : 'good',               lbl: 'Origin' },
+        { val: p.is_uncapped ? 'UNCAP' : 'CAP',     cls: p.is_uncapped ? 'good' : '',                   lbl: 'Status' },
       ].map((s,i) => `<div class="adv-stat" style="animation-delay:${i*0.05}s">
-        <div class="adv-stat-val ${s.cls}"${(s.lbl==='🏏 IPL'&&colors)?` style="color:${colors.primary}"`:''}>${s.val}</div>
+        <div class="adv-stat-val ${s.cls}"${(s.lbl==='IPL'&&colors)?` style="color:${colors.primary}"`:''}>${s.val}</div>
         <div class="adv-stat-lbl">${s.lbl}</div>
       </div>`).join('');
     }
@@ -816,7 +845,7 @@ function renderAuctionState(state) {
     el('live-block').style.display = 'none';
     el('no-player').style.display  = '';
     el('no-player').textContent =
-      state.status === 'sold'    ? '✓ Sold — select next player.' :
+      state.status === 'sold'    ? 'Sold — select next player.' :
       state.status === 'set_live'? `Set Live: ${state.current_set_name}` :
       unsoldIds.size > 0         ? `Waiting — ${unsoldIds.size} unsold player(s).` :
                                    'Select a player to start.';
@@ -838,7 +867,7 @@ function renderRTMAdminBlock(state) {
     block.innerHTML = `
       <div class="rtm-admin-banner" style="position:relative;">
         ${remInit !== null ? `<div id="rtm-admin-countdown" style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--gold);position:absolute;top:10px;right:12px;">${remInit}s</div>` : ''}
-        <span class="rtm-admin-title">🔄 RTM PENDING</span>
+        <span class="rtm-admin-title">RTM PENDING</span>
         <span class="rtm-admin-sub">${state.rtm_team?.team_name || '?'} · Match: <strong>${fmt(state.rtm_match_price||0)}</strong>${remInit !== null ? ' · <span style="color:var(--muted);font-size:11px;">auto-declines when timer hits 0</span>' : ''}</span>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button class="btn btn-gold btn-sm" onclick="adminExerciseRTM(true)">✓ Accept RTM</button>
@@ -928,7 +957,7 @@ function renderUnsoldQueue() {
   const SIL = window._SIL_ADMIN || '';
   cont.innerHTML = `<div class="unsold-queue-panel">
     <div class="unsold-queue-title">
-      📭 Unsold Queue
+      Unsold Queue
       <span class="uq-count">${items.length} player${items.length !== 1 ? 's' : ''} awaiting re-launch</span>
     </div>
     <div class="unsold-queue-list">
@@ -1016,7 +1045,7 @@ function renderAdminTeams() {
       <td>
         <span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;">${t.team_name}</span>
         ${t.is_advantage_holder ? ' <span class="tag tag-advantage" style="font-size:10px;">⭐ ADV</span>' : ''}
-        ${rtmRem > 0 ? ` <span class="tag tag-rtm" style="font-size:10px;">🔄×${rtmRem}</span>` : ''}
+        ${rtmRem > 0 ? ` <span class="tag tag-rtm" style="font-size:10px;">RTM×${rtmRem}</span>` : ''}
       </td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;color:${purseColor};white-space:nowrap;">
         ₹${purse.toFixed(1)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>
@@ -1039,6 +1068,14 @@ async function updateStats() {
       sb.from('team_players').select('sold_price,is_retained'),
       sb.from('auction_state').select('unsold_player_ids').eq('id',1).maybeSingle()
     ]);
+    // Fetch auction_day separately — silently skip if column not yet created via ALTER TABLE
+    let auctionDay = null;
+    try {
+      const { data: dayRow, error: dayErr } = await sb.from('auction_state')
+        .select('auction_day').eq('id',1).maybeSingle();
+      if (!dayErr) auctionDay = dayRow?.auction_day ?? null;
+      // If dayErr: column doesn't exist yet — Day chip shows '—', nothing breaks
+    } catch(_) {}
     const total         = allPlayers.length;
     const auctionSold   = (tpRows||[]).filter(r => !r.is_retained).length;
     const retainedCount = (tpRows||[]).filter(r => r.is_retained).length;
@@ -1117,6 +1154,12 @@ async function loadHistory() {
 function clearHistoryFilters() {
   const ids = ['history-search','history-filter','history-role','history-set','history-date'];
   ids.forEach(id => { const e = el(id); if (e) e.value = ''; });
+  renderHistory();
+}
+function setHistoryDateToday() {
+  const inp = el('history-date');
+  if (!inp) return;
+  inp.value = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
   renderHistory();
 }
 
@@ -1288,7 +1331,7 @@ function exportHistoryPDF() {
         td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top;}
         @media print{body{padding:8px;} .no-print{display:none!important;}}
       </style></head><body>
-      <h1>🏏 BFL IPL 2026 — Auction History</h1>
+      <h1>BFL IPL 2026 — Auction History</h1>
       <div class="sub">Generated ${new Date().toLocaleString('en-IN')}</div>
       <div class="stat-row">
         <div class="stat"><div class="stat-val">${list.length}</div><div class="stat-lbl">Total</div></div>
@@ -1367,7 +1410,7 @@ async function exportAllSquadsPDF() {
         td{padding:5px 8px;border-bottom:1px solid #eee;vertical-align:top;}
         @media print{.team-block{page-break-inside:avoid;} body{padding:10px;}}
       </style></head><body>
-      <h1>🏏 BFL IPL 2026 — All Team Squads</h1>
+      <h1>BFL IPL 2026 — All Team Squads</h1>
       <div class="sub">Generated ${new Date().toLocaleString('en-IN')} · ${Object.keys(byTeam).length} teams</div>
       ${sections}
       <script>window.onload=()=>window.print();<\/script>
@@ -1447,7 +1490,7 @@ async function exportTeamSquadPDF() {
         td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top;}
         @media print{body{padding:8px;}}
       </style></head><body>
-      <h1>🏏 ${team?.team_name||'Team'}${team?.is_advantage_holder?' ⭐':''}</h1>
+      <h1>${team?.team_name||'Team'}${team?.is_advantage_holder?' ★':''}</h1>
       <div class="sub">BFL IPL 2026 Auction Squad · Generated ${new Date().toLocaleString('en-IN')}</div>
       <div class="stat-row">
         <div class="stat"><div class="stat-val">${list.length}/12</div><div class="stat-lbl">Players</div></div>
@@ -1647,7 +1690,7 @@ function renderAdminSquadComp(players, team, container) {
   container.innerHTML = `<div class="squad-comp-bar" style="margin-top:10px;">
     <div class="squad-comp-header">
       <span class="${complete?'squad-comp-ok':(allMet&&meaningful)?'squad-comp-ok':'squad-comp-warn'}">
-        ${complete ? '✓ Squad Complete' : (allMet&&meaningful) ? '✓ Requirements Met' : issues.length ? '⚠ '+issues.length+' issue(s)' : `Building (${total}/12)`}
+        ${complete ? 'Squad Complete' : (allMet&&meaningful) ? 'Requirements Met' : issues.length ? '⚠ '+issues.length+' issue(s)' : `Building (${total}/12)`}
       </span>
       <span style="font-size:11px;opacity:0.6;">${total}/12 players · ${os}/4 OS${isAdv?' · Advantage (IPL limit exempt)':''}</span>
     </div>
@@ -1859,7 +1902,7 @@ async function qlLaunch(playerId) {
 
 ${p.name} (${p.role || '?'} · ${p.ipl_team || '?'})
 Base price: ₹${p.base_price} Cr`,
-    { title: label + ' Auction', icon: '▶', danger: false }
+    { title: label + ' Auction', icon: '', danger: false }
   )) return;
   await startAuction(playerId);
 }
@@ -1919,7 +1962,7 @@ async function renderSetLauncher() {
           <span style="color:var(--muted);font-size:13px;margin-left:8px;">${players.length} player${players.length!==1?'s':''}</span>
           ${isActive?'<span class="tag tag-live" style="margin-left:8px;">LIVE</span>':''}
         </div>
-        ${!isActive?`<button class="btn btn-gold btn-sm" onclick="launchSetAuction('${sName.replace(/'/g,"\\'")}')">⚡ Launch ${players.length} players</button>`:''}
+        ${!isActive?`<button class="btn btn-gold btn-sm" onclick="launchSetAuction('${sName.replace(/'/g,"\\'")}')">${players.length} Players — Launch</button>`:''}
       </div>
       <div class="set-players">${chips}</div>
     </div>`;
@@ -1978,7 +2021,7 @@ function renderLiveSetPanel() {
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Timer</div>
           <div id="admin-set-timer" class="timer${initRem<=5?' timer-critical':initRem<=10?' timer-warning':''}" style="font-size:34px;">${initRem}s</div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="closeSetAuction()">🔨 Close Set</button>
+        <button class="btn btn-danger btn-sm" onclick="closeSetAuction()">Close Set</button>
         <button class="btn-cancel-set" onclick="cancelSetAuction()" title="Stop set auction without selling — returns all players to available pool">✕ Cancel Set</button>
       </div>
     </div>
@@ -1987,7 +2030,7 @@ function renderLiveSetPanel() {
 }
 
 async function launchSetAuction(setName) {
-  if (!await confirm2(`Launch all **${setName}** players simultaneously?\nAll teams bid on any player at the same time.`, {title:`Launch: ${setName}`,icon:'⚡'})) return;
+  if (!await confirm2(`Launch all players in **${setName}** simultaneously? All teams can bid on any player at the same time.`, {title:`Launch: ${setName}`,icon:'⚡'})) return;
   clearError();
   const { data, error } = await sb.rpc('start_set_auction', { p_set_name: setName });
   if (error) return showError(error.message);
@@ -2000,7 +2043,7 @@ async function launchSetAuction(setName) {
 }
 
 async function closeSetAuction() {
-  if (!await confirm2('Players with bids → **SOLD**. No bids → **UNSOLD**.', {title:'Close Set',icon:'🔨',danger:true})) return;
+  if (!await confirm2('Players with bids → **SOLD**. No bids → **UNSOLD**.', {title:'Close Set',icon:'',danger:true})) return;
   clearError();
   const setName = currentState?.current_set_name;
   if (!setName) return showError('No active set auction');
@@ -2020,7 +2063,7 @@ async function cancelSetAuction() {
   if (!setName) return showError('No active set auction');
   if (!await confirm2(
     `Cancel the **${setName}** set auction?\n\nAll players return to the available pool. No sales recorded.`,
-    { title:'Cancel Set Auction', danger:true, icon:'✕' }
+    { title:'Cancel Set Auction', danger:true, icon:'' }
   )) return;
   clearError();
 
@@ -2096,7 +2139,7 @@ async function renderRetentionView() {
 
   const addForm = `
     <div class="card" style="margin-bottom:14px;">
-      <div class="card-title">➕ Add Retention / RTM</div>
+      <div class="card-title">Add Retention / RTM</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
         <div>
           <div class="form-label">Team</div>

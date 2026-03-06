@@ -9,7 +9,7 @@
   <title>BFL Auction — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=34">
+  <link rel="stylesheet" href="css/styles.css?v=38">
 </head>
 <body>
 
@@ -41,6 +41,10 @@
       <div class="stat-chip"><div class="skel skel-chip"></div></div>
     </div>
     <div id="stats-real" class="stats-row" style="display:none;">
+      <div class="stat-chip stat-chip-day" title="Click to change auction day" onclick="promptSetDay()" style="cursor:pointer;">
+        <div class="stat-chip-val" id="stat-day">—</div>
+        <div class="stat-chip-lbl">Auction Day <span style="font-size:9px;opacity:0.5;">▾</span></div>
+      </div>
       <div class="stat-chip"><div class="stat-chip-val" id="stat-total">0</div><div class="stat-chip-lbl">Players</div></div>
       <div class="stat-chip"><div class="stat-chip-val" id="stat-sold">0</div><div class="stat-chip-lbl">Sold</div></div>
       <div class="stat-chip"><div class="stat-chip-val" id="stat-unsold">0</div><div class="stat-chip-lbl">Unsold</div></div>
@@ -111,24 +115,24 @@
           <!-- Bid row: Highest | 2nd | Timer -->
           <!-- Autopilot sell warning — shown when timer hits 0 and autopilot is OFF -->
           <div class="autosell-warning" id="autosell-warning">
-            <span style="font-size:20px;">⚠️</span>
+            <span style="font-size:20px;"></span>
             <span style="flex:1;">Auto-selling in&nbsp;<span id="autosell-cd" class="autosell-cd">12</span>s</span>
-            <button class="autosell-cancel" onclick="cancelAutoSell()">✕ Cancel</button>
+            <button class="autosell-cancel" onclick="cancelAutoSell()">Cancel</button>
           </div>
 
           <div class="live-row">
             <div class="bid-stat">
-              <div class="bid-stat-label">🏆 Highest Bid</div>
+              <div class="bid-stat-label">Highest Bid</div>
               <div class="bid-stat-value" id="current-bid">—</div>
               <div class="bid-stat-sub"   id="leading-team">—</div>
             </div>
             <div class="bid-stat">
-              <div class="bid-stat-label">🥈 2nd Highest</div>
+              <div class="bid-stat-label">2nd Highest</div>
               <div class="bid-stat-value second" id="second-bid">—</div>
               <div class="bid-stat-sub"           id="second-team">—</div>
             </div>
             <div class="timer-block">
-              <div class="timer-label">⏱ Timer</div>
+              <div class="timer-label">Timer</div>
               <span class="timer" id="timer">—</span>
             </div>
           </div>
@@ -140,20 +144,20 @@
         <div class="admin-controls" id="admin-controls" style="display:none;">
           <button class="btn btn-gold"   id="pause-btn"      style="display:none;" onclick="pauseAuction()">⏸ Pause</button>
           <button class="btn btn-blue"   id="resume-btn"     style="display:none;" onclick="resumeAuction()">▶ Resume</button>
-          <button class="btn btn-danger" id="force-sell-btn" style="display:none;" onclick="forceSell()">🔨 Force Sell</button>
-          <button class="btn btn-cancel-live btn-sm" id="cancel-live-btn" style="display:none;" onclick="cancelLiveAuction()">✕ Cancel</button>
-          <button class="btn btn-ghost btn-sm" id="autopilot-btn" onclick="toggleAutopilot()">🤖 Autopilot: OFF</button>
+          <button class="btn btn-danger" id="force-sell-btn" style="display:none;" onclick="forceSell()">Force Sell</button>
+          <button class="btn btn-cancel-live btn-sm" id="cancel-live-btn" style="display:none;" onclick="cancelLiveAuction()">Cancel</button>
+          <button class="btn btn-ghost btn-sm" id="autopilot-btn" onclick="toggleAutopilot()">Autopilot: OFF</button>
           <span class="delay-wrap" title="Auto-sell delay (seconds after timer hits 0)">
             <span style="font-size:11px;color:var(--muted);">Delay:</span>
             <input type="number" class="form-input" style="width:54px;padding:4px 6px;font-size:12px;" id="autopilot-delay-input" value="12" min="5" max="60" onchange="setAutopilotDelay(this.value)">
             <span style="font-size:11px;color:var(--muted);">s</span>
           </span>
           <button class="btn btn-ghost btn-sm" onclick="resetState()">↺ Reset State</button>
-          <button class="btn btn-warning btn-sm" id="reset-set-btn" onclick="resetSet()" style="display:none;">⚡ Reset Set</button>
+          <button class="btn btn-warning btn-sm" id="reset-set-btn" onclick="resetSet()" style="display:none;">Reset Set</button>
           <button class="btn btn-requeue btn-sm" onclick="queueAllUnsold()" title="Re-queue all unsold players">↻ Re-queue Unsold</button>
           <div style="margin-left:auto;display:flex;gap:6px;">
-            <button class="btn btn-warning btn-sm" onclick="resetDay()">🔄 Reset Day</button>
-            <button class="btn btn-danger btn-sm" onclick="restartAuction()">⚠️ Full Restart</button>
+            <button class="btn btn-warning btn-sm" onclick="resetDay()">Reset Day</button>
+            <button class="btn btn-danger btn-sm" onclick="restartAuction()">Full Restart</button>
           </div>
         </div>
       </div>
@@ -177,10 +181,10 @@
               <col class="col-team"><col class="col-purse"><col class="col-sq"><col class="col-os">
             </colgroup>
             <thead><tr>
-              <th onclick="adminSortTeams('team_name')" id="ath-name">🏟 Team</th>
-              <th onclick="adminSortTeams('purse_remaining')" id="ath-purse">💰 Purse</th>
-              <th onclick="adminSortTeams('playerCount')" id="ath-squad">👥 Squad</th>
-              <th onclick="adminSortTeams('osCount')" id="ath-os">🌍 OS</th>
+              <th onclick="adminSortTeams('team_name')" id="ath-name">Team am</th>
+              <th onclick="adminSortTeams('purse_remaining')" id="ath-purse">Purse</th>
+              <th onclick="adminSortTeams('playerCount')" id="ath-squad">Squad</th>
+              <th onclick="adminSortTeams('osCount')" id="ath-os">OS</th>
             </tr></thead>
             <tbody id="teams-tbody"></tbody>
           </table>
@@ -215,14 +219,14 @@
             <button class="tab-btn" onclick="switchTab('history')">History</button>
             <button class="tab-btn" onclick="switchTab('squads')">Squads</button>
             <button class="tab-btn" onclick="switchTab('retentions')">Retentions</button>
-            <button class="tab-btn" onclick="switchTab('rtmsetup')">🎯 RTM Setup</button>
+            <button class="tab-btn" onclick="switchTab('rtmsetup')">RTM Setup</button>
           </div>
 
           <!-- PLAYERS -->
           <div class="tab-panel active" id="tab-players">
             <!-- ⚡ Quick launch: type a name and hit Enter to start auction immediately -->
             <div class="quick-launch-wrap">
-              <span class="ql-icon">⚡</span>
+              <span class="ql-icon">→</span>
               <input class="quick-launch-input" type="text" id="ql-input"
                 placeholder="Quick-launch: type player name → ↵ Enter to start auction…"
                 autocomplete="off"
@@ -232,7 +236,7 @@
             </div>
 
             <div class="filters-bar">
-              <input class="form-input" type="text" id="player-search" placeholder="🔍 Name / role / team…" style="width:200px;" oninput="renderPlayerList()">
+              <input class="form-input" type="text" id="player-search" placeholder="Name / role / team…" style="width:200px;" oninput="renderPlayerList()">
               <select class="form-input" id="filter-set"    style="width:120px;" onchange="renderPlayerList()"><option value="">All Sets</option></select>
               <select class="form-input" id="filter-role"   style="width:145px;" onchange="renderPlayerList()">
                 <option value="">All Roles</option><option>Batter</option><option>Bowler</option><option>All-Rounder</option><option>Wicket-Keeper</option>
@@ -278,7 +282,7 @@
           <div class="tab-panel" id="tab-sets">
             <div id="set-launcher-wrap">
               <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
-                ⚡ <strong>Set Auction</strong> — launches all players in a set simultaneously. All teams bid on any player at the same time. One shared timer for the whole set. Admin closes all at once.
+                <strong>Set Auction</strong> — launches all players in a set simultaneously. All teams bid on any player at the same time. One shared timer for the whole set. Admin closes all at once.
               </p>
               <div id="set-launcher"></div>
             </div>
@@ -287,7 +291,7 @@
           <!-- HISTORY -->
           <div class="tab-panel" id="tab-history">
             <div class="filters-bar">
-              <input class="form-input" type="text" id="history-search" placeholder="🔍 Player / team…" style="width:180px;" oninput="renderHistory()">
+              <input class="form-input" type="text" id="history-search" placeholder="Player / team…" style="width:180px;" oninput="renderHistory()">
               <select class="form-input" id="history-filter" style="width:110px;" onchange="renderHistory()">
                 <option value="">All</option><option value="sold">Sold</option><option value="unsold">Unsold</option>
               </select>
@@ -297,14 +301,17 @@
               <select class="form-input" id="history-set" style="width:120px;" onchange="renderHistory()">
                 <option value="">All Sets</option>
               </select>
-              <input class="form-input" type="date" id="history-date" style="width:140px;" onchange="renderHistory()" title="Filter by auction date">
-              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px;" onclick="clearHistoryFilters()" title="Clear all filters">✕ Clear</button>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input class="form-input" type="date" id="history-date" style="width:150px;color-scheme:dark;" onchange="renderHistory()" title="Filter by date">
+                <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;white-space:nowrap;" onclick="setHistoryDateToday()" title="Filter to today">Today</button>
+              </div>
+              <button class="btn btn-ghost" style="font-size:12px;padding:5px 10px;" onclick="clearHistoryFilters()">Clear Filters</button>
             </div>
             <div class="export-bar">
               <button class="btn-export csv" onclick="exportHistoryCSV()">⬇ History CSV</button>
-              <button class="btn-export pdf" onclick="exportHistoryPDF()">📄 History PDF</button>
-              <button class="btn-export pdf" onclick="exportAllSquadsPDF()" style="border-color:rgba(59,130,246,0.3);color:#93c5fd;">📋 All Squads PDF</button>
-              <button class="btn-export csv" onclick="exportAllSquadsCSV()" style="border-color:rgba(59,130,246,0.3);color:#93c5fd;">📋 All Squads CSV</button>
+              <button class="btn-export pdf" onclick="exportHistoryPDF()">History PDF</button>
+              <button class="btn-export pdf" onclick="exportAllSquadsPDF()" style="border-color:rgba(59,130,246,0.3);color:#93c5fd;">All Squads PDF</button>
+              <button class="btn-export csv" onclick="exportAllSquadsCSV()" style="border-color:rgba(59,130,246,0.3);color:#93c5fd;">All Squads CSV</button>
             </div>
             <div class="table-wrap" style="max-height:420px;overflow:auto;">
               <table class="data-table" style="min-width:780px;">
@@ -345,11 +352,11 @@
               <select class="form-input" id="squad-team-select" style="width:220px;" onchange="renderSquadView()">
                 <option value="">Select Team…</option>
               </select>
-              <button class="btn-export pdf" onclick="exportTeamSquadPDF()">📄 Squad PDF</button>
+              <button class="btn-export pdf" onclick="exportTeamSquadPDF()">Squad PDF</button>
             </div>
             <div class="export-bar">
-              <button class="btn-export pdf" onclick="exportAllSquadsPDF()">📋 All Squads PDF</button>
-              <button class="btn-export csv" onclick="exportAllSquadsCSV()">📋 All Squads CSV</button>
+              <button class="btn-export pdf" onclick="exportAllSquadsPDF()">All Squads PDF</button>
+              <button class="btn-export csv" onclick="exportAllSquadsCSV()">All Squads CSV</button>
             </div>
             <div id="squad-view-content"><div class="empty-cell">Select a team above.</div></div>
           </div>
@@ -391,10 +398,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=34"></script>
+<script src="js/localstorage-shim.js?v=38"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=34"></script>
-<script src="js/supabaseClient.js?v=34"></script>
-<script src="js/admin.js?v=34"></script>
+<script src="js/modal.js?v=38"></script>
+<script src="js/supabaseClient.js?v=38"></script>
+<script src="js/admin.js?v=38"></script>
 </body>
 </html>
