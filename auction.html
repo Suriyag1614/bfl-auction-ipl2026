@@ -8,7 +8,7 @@
   <title>BFL Auction — Live</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=40">
+  <link rel="stylesheet" href="css/styles.css?v=44">
 </head>
 <body>
 
@@ -104,6 +104,7 @@
         <div id="no-auction" style="display:none;">
           <div id="no-auction-msg" class="no-auction-msg">Waiting for auction to start…</div>
           <div id="mini-history-wrap"></div>
+          <div id="upcoming-sets-wrap" class="upcoming-sets-wrap"></div>
         </div>
 
         <!-- RTM Pending -->
@@ -116,6 +117,8 @@
 
         <!-- Set auction view (legacy, hidden) -->
         <div id="set-auction-view" style="display:none;"></div>
+        <!-- Upcoming sets — also shown below live player card -->
+        <div id="upcoming-sets-live" class="upcoming-sets-wrap" style="margin-top:12px;"></div>
       </div>
     </div>
 
@@ -195,10 +198,10 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=40"></script>
+<script src="js/localstorage-shim.js?v=44"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=40"></script>
-<script src="js/supabaseClient.js?v=40"></script>
-<script src="js/auction.js?v=40"></script>
+<script src="js/modal.js?v=44"></script>
+<script src="js/supabaseClient.js?v=44"></script>
+<script src="js/auction.js?v=44"></script>
 </body>
 </html>

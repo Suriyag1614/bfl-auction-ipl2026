@@ -13,7 +13,7 @@ let timerInterval  = null;
 let autoSellTimer      = null;
 let _autoSellCdTimer   = null;   // countdown interval for warning
 let _qlFocusIdx        = -1;     // quick-launch keyboard index
-let sortKey        = 'name';
+let sortKey        = 'set_no';
 let sortDir        = 'asc';
 let hSortKey       = 'sold_at';
 let hSortDir       = 'desc';
@@ -85,17 +85,38 @@ let _dmDayVal = 1;
 let _dmCountdownInterval = null;
 let _dmBidTimerOverride = false;  // true = user manually set bid timer
 
-function promptSetDay() {
+async function promptSetDay() {
   const current = el('stat-day')?.textContent?.replace('Day ','').trim();
   _dmDayVal = parseInt(current) || 1;
   el('dm-day-val').textContent = _dmDayVal;
 
-  // Default date = today
-  const today = new Date().toLocaleDateString('en-CA');
-  if (!el('dm-date').value) el('dm-date').value = today;
-
-  // Reset bid timer override state
+  // Reset timer override state
   _dmBidTimerOverride = false;
+
+  // Pre-fill timer fields from current DB values if available
+  try {
+    const { data: aState } = await sb.from('auction_state')
+      .select('bid_timer_default,set_timer_default,auction_day,day_start,day_end').eq('id',1).maybeSingle();
+    if (aState) {
+      const bidDef = el('dm-bid-timer');
+      const setDef = el('dm-set-timer');
+      if (bidDef && aState.bid_timer_default) bidDef.value = aState.bid_timer_default;
+      if (setDef && aState.set_timer_default) setDef.value = aState.set_timer_default;
+      if (aState.auction_day) { _dmDayVal = aState.auction_day; el('dm-day-val').textContent = _dmDayVal; }
+      // Populate start/end from DB if saved
+      if (aState.day_start) {
+        const t = new Date(aState.day_start);
+        const hhmm = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+        const startEl = el('dm-start'); if (startEl && !startEl.value) startEl.value = hhmm;
+      }
+      if (aState.day_end) {
+        const t = new Date(aState.day_end);
+        const hhmm = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+        const endEl = el('dm-end'); if (endEl && !endEl.value) endEl.value = hhmm;
+      }
+    }
+  } catch(_) {}
+
   _dmUpdateBidTimerHint();
 
   el('day-modal').style.display = 'flex';
@@ -103,11 +124,11 @@ function promptSetDay() {
   _updateDmCountdown();
 
   // Live update on any input change
-  ['dm-date','dm-start','dm-end','dm-bid-timer'].forEach(id => {
+  ['dm-start','dm-end','dm-bid-timer','dm-set-timer'].forEach(id => {
     const inp = el(id);
     if (inp) {
       inp.oninput = () => {
-        if (id === 'dm-bid-timer') _dmBidTimerOverride = true;
+        if (id === 'dm-bid-timer' || id === 'dm-set-timer') _dmBidTimerOverride = true;
         _updateDmCountdown();
         _dmUpdateBidTimerHint();
       };
@@ -134,45 +155,51 @@ function dmResetBidTimer() {
 }
 
 function _dmAutoCalcBidTimer() {
-  // Derive default bid timer from session length — 1% of total session duration, capped 30-120s
-  const date  = el('dm-date')?.value;
+  // Derive default timers from session length — use today's date for calculation
+  const today = new Date().toLocaleDateString('en-CA');
   const start = el('dm-start')?.value;
   const end   = el('dm-end')?.value;
-  if (!date || !start || !end) return;
-  const sessionMs = new Date(date+'T'+end).getTime() - new Date(date+'T'+start).getTime();
+  if (!start || !end) return;
+  const sessionMs = new Date(today+'T'+end).getTime() - new Date(today+'T'+start).getTime();
   if (sessionMs <= 0) return;
-  const auto = Math.min(120, Math.max(30, Math.round(sessionMs / 1000 / 100 / 5) * 5));
-  el('dm-bid-timer').value = auto;
+  // Single player: ~1% of session, capped 30-120s
+  const autoSingle = Math.min(120, Math.max(30, Math.round(sessionMs / 1000 / 100 / 5) * 5));
+  el('dm-bid-timer').value = autoSingle;
+  // Set timer: 2× single player, capped 60-300s
+  const autoSet = Math.min(300, Math.max(60, autoSingle * 2));
+  const setTimerEl = el('dm-set-timer');
+  if (setTimerEl) setTimerEl.value = autoSet;
 }
 
 function _dmUpdateBidTimerHint() {
-  const hint = el('dm-timer-hint');
-  const calc = el('dm-auto-calc');
+  const hint    = el('dm-timer-hint');
+  const setHint = el('dm-set-timer-hint');
+  const calc    = el('dm-auto-calc');
   if (!hint || !calc) return;
   if (_dmBidTimerOverride) {
-    hint.textContent = 'Custom';
-    hint.style.color = 'var(--gold)';
+    hint.textContent = 'Custom'; hint.style.color = 'var(--gold)';
+    if (setHint) { setHint.textContent = 'Custom'; setHint.style.color = 'var(--gold)'; }
     calc.style.opacity = '1';
   } else {
-    hint.textContent = 'Auto';
-    hint.style.color = 'var(--muted)';
+    hint.textContent = 'Auto'; hint.style.color = 'var(--muted)';
+    if (setHint) { setHint.textContent = 'Auto'; setHint.style.color = 'var(--muted)'; }
     calc.style.opacity = '0.5';
     _dmAutoCalcBidTimer();
   }
 }
 
 function _updateDmCountdown() {
-  const date  = el('dm-date')?.value;
+  const today = new Date().toLocaleDateString('en-CA');
   const start = el('dm-start')?.value;
   const end   = el('dm-end')?.value;
   const cdEl  = el('dm-countdown');
   const barEl = el('dm-countdown-bar');
   if (!cdEl) return;
 
-  if (!date || !end) { cdEl.textContent = '—'; return; }
+  if (!end) { cdEl.textContent = '—'; return; }
 
-  const endMs   = new Date(date + 'T' + end).getTime();
-  const startMs = (date && start) ? new Date(date + 'T' + start).getTime() : null;
+  const endMs   = new Date(today + 'T' + end).getTime();
+  const startMs = start ? new Date(today + 'T' + start).getTime() : null;
   const rem     = endMs - Date.now();
   const totalDur = startMs ? (endMs - startMs) : null;
 
@@ -203,15 +230,14 @@ function _updateDmCountdown() {
 }
 
 async function saveDaySettings() {
-  const date     = el('dm-date')?.value;
+  const today    = new Date().toLocaleDateString('en-CA');
   const start    = el('dm-start')?.value;
   const end      = el('dm-end')?.value;
-  const bidTimer = parseInt(el('dm-bid-timer')?.value) || 60;
+  const bidTimer    = parseInt(el('dm-bid-timer')?.value)    || 60;
+  const setTimer    = parseInt(el('dm-set-timer')?.value)    || 90;
 
-  if (!date) { toast('Missing Date', 'Please select an auction date', 'warn'); return; }
-
-  const startIso    = start ? new Date(date + 'T' + start).toISOString() : null;
-  const endIso      = end   ? new Date(date + 'T' + end).toISOString()   : null;
+  const startIso = start ? new Date(today + 'T' + start).toISOString() : null;
+  const endIso   = end   ? new Date(today + 'T' + end).toISOString()   : null;
   const update = { auction_day: _dmDayVal };
   if (startIso) update.day_start = startIso;
   if (endIso)   update.day_end   = endIso;
@@ -219,14 +245,17 @@ async function saveDaySettings() {
   const { error } = await sb.from('auction_state').update(update).eq('id', 1);
   if (error) { toast('Save Failed', error.message, 'error'); return; }
 
-  // Save bid timer default separately — column may not exist yet (run SQL migration first)
+  // Save both timer defaults (graceful — columns added via SQL migration)
   try {
-    await sb.from('auction_state').update({ bid_timer_default: bidTimer }).eq('id', 1);
-  } catch(_) { /* Column not yet created — run: ALTER TABLE auction_state ADD COLUMN bid_timer_default INTEGER DEFAULT 60 */ }
+    await sb.from('auction_state').update({
+      bid_timer_default: bidTimer,
+      set_timer_default: setTimer,
+    }).eq('id', 1);
+  } catch(_) {}
 
   const dayEl = el('stat-day');
-  if (dayEl) { dayEl.textContent = 'Day ' + _dmDayVal; dayEl.closest('.stat-chip').style.borderColor = 'var(--gold-dim)'; }
-  toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · ' + bidTimer + 's bid timer published', 'success');
+  if (dayEl) { dayEl.textContent = 'Day ' + _dmDayVal; dayEl.closest('.stat-chip')?.style.setProperty('border-color','var(--gold-dim)'); }
+  toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · Single ' + bidTimer + 's · Set ' + setTimer + 's', 'success');
   closeDayModal();
 }
 
@@ -383,6 +412,11 @@ function renderPlayerList() {
 
   list.sort((a, b) => {
     let va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
+    // Numeric sort for set_no and base_price
+    if (sortKey === 'set_no' || sortKey === 'base_price' || sortKey === 'bfl_avg') {
+      const na = Number(va) || 0, nb = Number(vb) || 0;
+      return sortDir === 'asc' ? na - nb : nb - na;
+    }
     if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
     return sortDir === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
   });
@@ -1134,7 +1168,7 @@ function renderUnsoldQueue() {
 async function loadTeams() {
   await safeLoad(async () => {
     const { data: teams, error } = await sb.from('teams')
-      .select('id,team_name,purse_remaining,is_advantage_holder,rtm_cards_total,rtm_cards_used')
+      .select('id,team_name,purse_remaining,is_advantage_holder,rtm_cards_total,rtm_cards_used,last_seen')
       .order('team_name');
     if (error) throw new Error(error.message);
     allTeams = teams || [];
@@ -1170,6 +1204,17 @@ function adminSortTeams(key) {
   renderAdminTeams();
 }
 
+// ── Presence helpers ─────────────────────────────────────────
+function presenceLabel(lastSeenIso) {
+  if (!lastSeenIso) return { text: 'Inactive', cls: 'presence-inactive' };
+  const diffMs  = Date.now() - new Date(lastSeenIso).getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 2)  return { text: 'Active now',      cls: 'presence-active' };
+  if (diffMin < 10) return { text: diffMin + 'm ago',  cls: 'presence-recent' };
+  if (diffMin < 60) return { text: diffMin + 'm ago',  cls: 'presence-idle' };
+  return { text: 'Inactive', cls: 'presence-inactive' };
+}
+
 function renderAdminTeams() {
   const tbody = el('teams-tbody'); if (!tbody) return;
   const { key, dir } = _adminTeamsSort;
@@ -1194,11 +1239,16 @@ function renderAdminTeams() {
     const purseColor = purse <= 5 ? 'var(--red)' : purse <= 10 ? '#f6ad55' : 'var(--gold)';
     const squadCount = t.playerCount || 0;
     const osCount    = t.osCount    || 0;
+    const pres = presenceLabel(t.last_seen);
     return `<tr>
       <td>
-        <span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;">${t.team_name}</span>
-        ${t.is_advantage_holder ? ' <span class="tag tag-advantage" style="font-size:10px;">⭐ ADV</span>' : ''}
-        ${rtmRem > 0 ? ` <span class="tag tag-rtm" style="font-size:10px;">RTM×${rtmRem}</span>` : ''}
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+          <span class="presence-dot ${pres.cls}" title="${pres.text}"></span>
+          <span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;">${t.team_name}</span>
+          ${t.is_advantage_holder ? '<span class="tag tag-advantage" style="font-size:10px;">⭐</span>' : ''}
+          ${rtmRem > 0 ? `<span class="tag tag-rtm" style="font-size:10px;">RTM×${rtmRem}</span>` : ''}
+        </div>
+        <div class="presence-lbl ${pres.cls}">${pres.text}</div>
       </td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;color:${purseColor};white-space:nowrap;">
         ₹${purse.toFixed(1)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>

@@ -1290,9 +1290,11 @@ select.form-input{cursor:pointer;}
   position: fixed;
   top: 72px; right: 16px;
   display: flex; flex-direction: column;
-  gap: 10px; z-index: 9999;
+  gap: 10px; z-index: 99999;
   max-width: 340px;
   pointer-events: none;
+  /* Ensure toasts always visible above overlays */
+  isolation: isolate;
 }
 .toast {
   display: flex; align-items: flex-start; gap: 12px;
@@ -1875,3 +1877,294 @@ input[type="number"].dm-input { width: 90px; flex: none; }
 }
 /* Move the sold radial glow to ::after (already defined, keep z-index right) */
 .sold-banner::after { z-index: 1; }
+
+/* ══════════════════════════════════════════════════════════════
+   UPCOMING SETS — waiting / paused state  (v43)
+   ══════════════════════════════════════════════════════════════ */
+.upcoming-sets-wrap {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.up-set-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  animation: fade-in-up 0.4s ease both;
+}
+.up-set-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border);
+}
+.up-set-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px; font-weight: 900;
+  letter-spacing: 0.5px;
+  color: var(--gold);
+  text-transform: uppercase;
+}
+.up-set-count {
+  font-size: 11px; color: var(--muted);
+  font-weight: 600; letter-spacing: 0.3px;
+}
+.up-players-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px 12px;
+}
+.up-player-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 9px 5px 5px;
+  min-width: 130px;
+  max-width: 200px;
+  flex: 1 1 130px;
+  transition: border-color 0.15s;
+}
+.up-player-chip:hover { border-color: var(--gold-dim); }
+.up-player-chip img {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg-card2);
+}
+.up-chip-info { flex: 1; min-width: 0; }
+.up-chip-name {
+  font-size: 12px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text);
+  line-height: 1.2;
+}
+.up-chip-meta {
+  display: flex; align-items: center; gap: 3px; margin-top: 2px; flex-wrap: wrap;
+}
+.up-role-tag {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px; font-weight: 800;
+  color: var(--text2);
+  letter-spacing: 0.3px;
+}
+.up-ipl-tag {
+  font-size: 10px; color: var(--muted);
+}
+.up-chip-base {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px; font-weight: 700;
+  color: var(--gold); opacity: 0.85;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.up-more {
+  width: 100%;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 0 2px;
+  letter-spacing: 0.3px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   UPCOMING SETS — live-view badge and enhancements (v42)
+   ══════════════════════════════════════════════════════════════ */
+
+/* Collapsible header for upcoming sets below live player */
+#upcoming-sets-live {
+  margin-top: 8px;
+}
+#upcoming-sets-live .up-set-card {
+  margin-bottom: 8px;
+}
+/* LIVE NOW badge on the currently-live set */
+.up-set-live {
+  border-color: rgba(229,62,62,0.5) !important;
+  box-shadow: 0 0 0 1px rgba(229,62,62,0.25);
+}
+.up-set-live-badge {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px; font-weight: 900;
+  letter-spacing: 1.5px;
+  color: var(--bg-card);
+  background: var(--red, #e53e3e);
+  border-radius: 4px;
+  padding: 2px 7px;
+  animation: pulse-red 1.2s ease-in-out infinite;
+}
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PRESENCE INDICATORS  (v44)
+   ══════════════════════════════════════════════════════════════ */
+.presence-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.presence-dot.presence-active  { background: #38a169; box-shadow: 0 0 0 2px rgba(56,161,105,0.3); animation: pulse-dot 2s ease-in-out infinite; }
+.presence-dot.presence-recent  { background: #68d391; }
+.presence-dot.presence-idle    { background: #f6ad55; }
+.presence-dot.presence-inactive { background: rgba(255,255,255,0.15); }
+
+@keyframes pulse-dot {
+  0%,100% { box-shadow: 0 0 0 2px rgba(56,161,105,0.3); }
+  50%      { box-shadow: 0 0 0 4px rgba(56,161,105,0.1); }
+}
+
+.presence-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  margin-top: 1px;
+  line-height: 1;
+}
+.presence-lbl.presence-active   { color: #68d391; }
+.presence-lbl.presence-recent   { color: #9ae6b4; }
+.presence-lbl.presence-idle     { color: #f6ad55; }
+.presence-lbl.presence-inactive { color: var(--muted); }
+
+/* ══════════════════════════════════════════════════════════════
+   SET HIGHLIGHTS BANNER  (v45)
+   ══════════════════════════════════════════════════════════════ */
+.set-hl-banner {
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--gold) 35%, transparent);
+  border-left: 4px solid var(--gold);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--gold) 10%, var(--bg-card2)),
+    var(--bg-card2) 70%);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  animation: fade-in-up 0.4s ease, banner-sold-glow 1.2s ease forwards;
+  position: relative;
+  overflow: hidden;
+}
+.set-hl-banner::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(115deg,
+    transparent 0%, transparent 40%,
+    rgba(255,255,255,0.04) 50%,
+    transparent 60%, transparent 100%);
+  background-size: 300% 100%;
+  animation: banner-shimmer 2.8s ease-in-out infinite;
+  pointer-events: none;
+}
+.set-hl-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.set-hl-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px; font-weight: 900;
+  color: var(--gold);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.set-hl-cards {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.set-hl-loading {
+  font-size: 13px; color: var(--muted);
+  padding: 6px 0;
+}
+.set-hl-card {
+  flex: 1 1 140px;
+  min-width: 130px;
+  max-width: 240px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.set-hl-card-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+/* Top bid card */
+.set-hl-top-bid { border-color: color-mix(in srgb, var(--gold) 40%, transparent); }
+.set-hl-player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.set-hl-img {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--gold-dim);
+  flex-shrink: 0;
+}
+.set-hl-player-info { flex: 1; min-width: 0; }
+.set-hl-player-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 800;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text);
+}
+.set-hl-player-meta {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--muted); flex-wrap: wrap;
+}
+.set-hl-sep { opacity: 0.4; }
+/* Dominant team card */
+.set-hl-dominator { border-color: color-mix(in srgb, #68d391 35%, transparent); }
+.set-hl-team-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px; font-weight: 900;
+  color: var(--text);
+  line-height: 1.1;
+}
+/* Amount */
+.set-hl-amount {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px; font-weight: 900;
+  color: var(--gold);
+  line-height: 1.1;
+}
+.set-hl-by {
+  font-size: 11px; color: var(--muted); font-weight: 600;
+}
+/* Summary card */
+.set-hl-summary { border-color: var(--border2); }
+.set-hl-stat-row {
+  display: flex; align-items: baseline; gap: 7px;
+}
+.set-hl-stat-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px; font-weight: 900;
+}
+.set-hl-stat-lbl {
+  font-size: 11px; color: var(--muted); font-weight: 600;
+}
+@media(max-width:480px) {
+  .set-hl-cards { flex-direction: column; }
+  .set-hl-card  { max-width: 100%; }
+}

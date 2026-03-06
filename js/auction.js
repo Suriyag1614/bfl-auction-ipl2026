@@ -48,7 +48,74 @@ const stateHash = s => !s ? '' :
    s.current_highest_team_id, s.bid_timer_end, s.rtm_pending,
    s.rtm_team_id, s.last_player_result, s.last_player_id,
    s.last_sold_price, s.current_set_name, s.rtm_deadline,
+   s.last_set_name||'',
    (s.unsold_player_ids||[]).length].join('|');
+
+// ── Status-change notification state ─────────────────────────
+let _prevToastState = { status: '', playerId: '', rtm: false, setName: '', result: '' };
+
+function fireStatusToasts(state) {
+  const cur = {
+    status:   state.status || '',
+    playerId: state.current_player_id || '',
+    rtm:      !!state.rtm_pending,
+    setName:  state.current_set_name || '',
+    result:   state.last_player_result || '',
+  };
+  const prev = _prevToastState;
+  const p    = state.current_player;
+  const pName = p?.name || 'Player';
+
+  // RTM triggered
+  if (cur.rtm && !prev.rtm) {
+    // RTM toast is handled separately in renderRTMPending
+  }
+
+  // New player went live (live + new player_id)
+  if (cur.status === 'live' && cur.playerId && cur.playerId !== prev.playerId && !cur.rtm) {
+    toast('Auction Started', pName + ' is now live — place your bids!', 'success');
+  }
+
+  // Paused (was live or set_live, now paused)
+  if (cur.status === 'paused' && prev.status !== 'paused') {
+    toast('Auction Paused', 'Bidding has been paused by admin', 'warn');
+  }
+
+  // Resumed (was paused, now live, same player)
+  if (cur.status === 'live' && prev.status === 'paused' && cur.playerId === prev.playerId) {
+    toast('Auction Resumed', pName + ' — bidding is open again', 'info');
+  }
+
+  // New set went live
+  if (cur.status === 'set_live' && (cur.setName !== prev.setName || prev.status !== 'set_live')) {
+    toast('Set Auction Live', cur.setName + ' — all players available to bid on!', 'success');
+  }
+
+  // Back to waiting — determine why
+  if (cur.status === 'waiting' && prev.status !== 'waiting' && prev.status !== '') {
+    const result = state.last_player_result;
+    if (result === 'sold') {
+      const toTeam = state.last_sold_to_team || '?';
+      const price  = state.last_sold_price ? '₹' + Number(state.last_sold_price).toFixed(2) + ' Cr' : '';
+      const isMyWin = state.last_sold_to_team === myTeam?.team_name;
+      if (isMyWin) {
+        toast('Player Won!', (state.last_player?.name||'Player') + ' — ' + price, 'success');
+      } else {
+        toast('Sold', (state.last_player?.name||'Player') + ' → ' + toTeam + (price?' for '+price:''), 'info');
+      }
+    } else if (result === 'unsold') {
+      toast('Unsold', (state.last_player?.name||'Player') + ' went unsold', 'warn');
+    } else if (result === 'cancelled') {
+      toast('Cancelled', 'Player returned to available pool', 'info');
+    } else if (result === 'set_done') {
+      toast('Set Complete', (state.current_set_name||prev.setName||'Set') + ' auction finished', 'success');
+    } else if (prev.status === 'live' || prev.status === 'set_live') {
+      toast('Auction Ended', 'Waiting for next player…', 'info');
+    }
+  }
+
+  _prevToastState = cur;
+}
 
 // ── IPL team helpers ──────────────────────────────────────────
 function getIPLColors(code) {
@@ -143,10 +210,15 @@ const _knownTypes = ['success','error','warn','info','rtm'];
 
 function _stripEmoji(str) {
   if (!str) return '';
-  return String(str)
-    .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')
-    .replace(/[\u2600-\u27BF]/g, '')
-    .replace(/^[\s\u00B7\-]+/, '').replace(/\s{2,}/g, ' ').trim();
+  try {
+    return String(str)
+      .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')
+      .replace(/[\u2600-\u27BF]/g, '')
+      .replace(/^[\s\u00B7\-]+/, '').replace(/\s{2,}/g, ' ').trim();
+  } catch(_) {
+    // Fallback for browsers that don't support /u flag
+    return String(str).replace(/^[\s\-]+/, '').trim();
+  }
 }
 function _esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -190,10 +262,12 @@ async function init() {
   const { data: team } = await sb.from('teams').select('*').eq('user_id', session.user.id).maybeSingle();
   if (!team) { location.href = 'index.html'; return; }
   myTeam = team;
+  await syncServerClock();
   await Promise.all([fetchState(), loadSquad(), loadStats(), loadAllTeams()]);
   revealUI(); startPolling(); subscribeRealtime();
+  pingPresence(); setInterval(pingPresence, 55000);  // heartbeat every ~55s
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { fetchState(); loadAllTeams(); }
+    if (!document.hidden) { fetchState(); loadAllTeams(); pingPresence(); }
   });
 }
 
@@ -204,6 +278,8 @@ function revealUI() {
   updatePurseDisplay();
   if (myTeam.is_advantage_holder) show('advantage-badge');
   updateRTMBadge();
+  // Confirm UI is live — helps verify toast system works
+  setTimeout(() => toast(myTeam.team_name + ' connected', 'Purse: ' + fmt(myTeam.purse_remaining), 'success'), 800);
 }
 
 function updateRTMBadge() {
@@ -267,10 +343,11 @@ async function fetchState() {
 
     if (state.status === 'set_live' && state.current_set_name) {
       const { data: slots } = await sb.from('auction_slots')
-        .select('id,current_highest_bid,current_highest_team_id,second_highest_bid,second_highest_team_id,bid_timer_end')
+        .select('id,current_highest_bid,current_highest_team_id,second_highest_bid,second_highest_team_id,bid_timer_end,player:players_master(id,name,role,is_overseas,is_uncapped)')
         .eq('set_name', state.current_set_name).eq('status', 'live');
       const sh = (slots||[]).map(s => s.id+':'+s.current_highest_bid+':'+s.current_highest_team_id+':'+s.second_highest_bid).join('|');
       if (sh !== _lastSlotsHash) { _lastSlotsHash = sh; _lastStateHash = ''; }
+      state._setSlots = slots || [];  // store for bid validation
     }
 
     const hash = stateHash(state);
@@ -328,6 +405,7 @@ async function applyState(state) {
     statusEl.className   = 'status-badge status-' + (state.rtm_pending ? 'rtm' : state.status);
   }
 
+  fireStatusToasts(state);
   renderLastResult(state);
   // Only refresh purse when it may have changed: team is leading, or just got outbid
   const purseHash = (state.current_highest_team_id||'')+(state.current_highest_bid||0)+(state.status||'');
@@ -348,9 +426,13 @@ async function applyState(state) {
   } else if ((state.status === 'live' || state.status === 'paused') && state.current_player) {
     stopSetTimer(); stopRTMTimer();
     _rtmAlerted = false;
-    if (state.current_player_id !== currentState?._prevPlayerId) { _wasLeading = false; }
+    if (state.current_player_id !== currentState?._prevPlayerId) {
+      _wasLeading   = false;
+      _timerEndMs   = 0;    // Force timer totalSec recalc on new player
+      _setTimerEndMs= 0;
+    }
     hide('set-auction-view'); hide('no-auction'); hide('rtm-pending');
-    renderLivePlayer(state, state.status === 'paused');
+    await renderLivePlayer(state, state.status === 'paused');
     if (state.current_player_id) loadBidHistory(state.current_player_id);
 
   } else {
@@ -375,6 +457,7 @@ async function applyState(state) {
     }
     await Promise.all([loadSquad(), loadStats()]);
     renderMiniHistory('mini-history-wrap');
+    await renderUpcomingSets();
   }
   // Only re-render all-teams table when it's likely visible (not during live bidding)
   if (state.status !== 'live' && state.status !== 'set_live') {
@@ -384,19 +467,131 @@ async function applyState(state) {
 
 // ── Last result banner with IPL team colors ───────────────────
 let _lastResultHash = '';
+// ── Set Highlights Banner (shown after set_done) ─────────────
+let _setHighlightCache = '';
+async function renderSetHighlights(state, cont) {
+  const setName = state.last_set_name || state.last_sold_to_team || 'Set';
+
+  // Show a skeleton immediately while fetching
+  cont.innerHTML = `<div class="set-hl-banner">
+    <div class="set-hl-header">
+      <span class="lr-set-badge">SET</span>
+      <span class="set-hl-title">${setName} — Complete</span>
+    </div>
+    <div class="set-hl-cards" id="set-hl-cards">
+      <div class="set-hl-loading">Loading highlights…</div>
+    </div>
+  </div>`;
+
+  // Avoid re-fetching for same set
+  if (_setHighlightCache === setName) return;
+  _setHighlightCache = setName;
+
+  try {
+    // Fetch sold results for this set
+    const { data: sold } = await sb.from('team_players')
+      .select('sold_price,team:teams(team_name,id),player:players_master(id,name,role,ipl_team,image_url,is_overseas,set_name)')
+      .order('sold_price', { ascending: false });
+
+    const setResults = (sold||[]).filter(r => r.player?.set_name === setName);
+
+    // Also fetch unsold from unsold_log for this set
+    const { data: unsoldRows } = await sb.from('unsold_log')
+      .select('player:players_master(id,name,set_name)');
+    const unsoldCount = (unsoldRows||[]).filter(r => r.player?.set_name === setName).length;
+
+    if (!setResults.length) {
+      const cardsEl = document.getElementById('set-hl-cards');
+      if (cardsEl) cardsEl.innerHTML = `<div class="set-hl-loading">${unsoldCount} unsold — no players sold in this set</div>`;
+      return;
+    }
+
+    // Compute highlights
+    const topBid = setResults[0]; // highest price (already sorted desc)
+    const soldCount = setResults.length;
+
+    // Team spend aggregation — find dominant team
+    const teamSpend = {};
+    const teamCount = {};
+    setResults.forEach(r => {
+      const tn = r.team?.team_name || '?';
+      teamSpend[tn] = (teamSpend[tn] || 0) + Number(r.sold_price || 0);
+      teamCount[tn] = (teamCount[tn] || 0) + 1;
+    });
+    const topTeam = Object.entries(teamSpend).sort((a,b) => b[1]-a[1])[0];
+    const topTeamName = topTeam ? topTeam[0] : '—';
+    const topTeamSpend = topTeam ? topTeam[1] : 0;
+    const topTeamPlayers = topTeam ? teamCount[topTeam[0]] : 0;
+
+    // Total spent in set
+    const totalSpent = setResults.reduce((s,r) => s + Number(r.sold_price||0), 0);
+
+    const roleIcon = {'Batter':'BAT','Bowler':'BOWL','All-Rounder':'AR','Wicket-Keeper':'WK'};
+
+    const cardsEl = document.getElementById('set-hl-cards');
+    if (!cardsEl) return;
+
+    cardsEl.innerHTML = `
+      <!-- Highest Bid card -->
+      <div class="set-hl-card set-hl-top-bid">
+        <div class="set-hl-card-lbl">Highest Bid</div>
+        <div class="set-hl-player-row">
+          <img src="${imgSrc(topBid.player?.image_url)}" onerror="this.onerror=null;this.src=window._SIL" alt="" class="set-hl-img">
+          <div class="set-hl-player-info">
+            <div class="set-hl-player-name">${topBid.player?.name || '?'}</div>
+            <div class="set-hl-player-meta">
+              <span>${roleIcon[topBid.player?.role]||topBid.player?.role||'—'}</span>
+              <span class="set-hl-sep">·</span>
+              <span>${topBid.player?.ipl_team||'—'}</span>
+              ${topBid.player?.is_overseas ? '<span class="tag tag-overseas" style="font-size:9px;padding:1px 4px;">OS</span>' : ''}
+            </div>
+          </div>
+        </div>
+        <div class="set-hl-amount">${fmt(topBid.sold_price)}</div>
+        <div class="set-hl-by">by ${topBid.team?.team_name||'?'}</div>
+      </div>
+
+      <!-- Dominant team card -->
+      <div class="set-hl-card set-hl-dominator">
+        <div class="set-hl-card-lbl">Dominant Team</div>
+        <div class="set-hl-team-name">${topTeamName}</div>
+        <div class="set-hl-amount">${fmt(topTeamSpend)}</div>
+        <div class="set-hl-by">${topTeamPlayers} player${topTeamPlayers!==1?'s':''} won</div>
+      </div>
+
+      <!-- Set summary card -->
+      <div class="set-hl-card set-hl-summary">
+        <div class="set-hl-card-lbl">Set Summary</div>
+        <div class="set-hl-stat-row">
+          <span class="set-hl-stat-val" style="color:var(--green);">${soldCount}</span>
+          <span class="set-hl-stat-lbl">Sold</span>
+        </div>
+        <div class="set-hl-stat-row">
+          <span class="set-hl-stat-val" style="color:var(--muted);">${unsoldCount}</span>
+          <span class="set-hl-stat-lbl">Unsold</span>
+        </div>
+        <div class="set-hl-stat-row">
+          <span class="set-hl-stat-val" style="color:var(--gold);">${fmt(totalSpent)}</span>
+          <span class="set-hl-stat-lbl">Total Spend</span>
+        </div>
+      </div>
+    `;
+  } catch(e) {
+    console.warn('[renderSetHighlights]', e.message);
+    const cardsEl = document.getElementById('set-hl-cards');
+    if (cardsEl) cardsEl.innerHTML = `<div class="set-hl-loading">${setName} complete</div>`;
+  }
+}
+
 function renderLastResult(state) {
   const cont = el('last-result-container'); if (!cont) return;
-  const lrHash = (state.last_player_result||'')+'|'+(state.last_player?.id||'')+'|'+(state.last_sold_to_team||'')+'|'+(state.last_sold_price||'');
+  const lrHash = (state.last_player_result||'')+'|'+(state.last_player?.id||'')+'|'+(state.last_sold_to_team||'')+'|'+(state.last_sold_price||'')+'|'+(state.last_set_name||'');
   if (lrHash === _lastResultHash) return;
   _lastResultHash = lrHash;
   if (!state.last_player_result) { cont.innerHTML = ''; return; }
 
   if (state.last_player_result === 'set_done') {
-    cont.innerHTML = `<div class="last-result-banner sold-banner">
-      <div class="lr-set-badge">SET</div>
-      <div style="flex:1;min-width:0;"><div class="lr-name">Set Complete</div>
-        <div class="lr-detail">${state.last_sold_to_team||''}</div></div>
-      <div class="lr-price lr-sold">DONE</div></div>`; return;
+    renderSetHighlights(state, cont); return;
   }
 
   const p = state.last_player;
@@ -449,7 +644,7 @@ function renderLastResult(state) {
 }
 
 // ── Advanced player bid card ──────────────────────────────────
-function renderLivePlayer(state, paused) {
+async function renderLivePlayer(state, paused) {
   const p = state.current_player;
   const isMe = state.current_highest_team_id === myTeam?.id;
   const colors = getIPLColors(p.ipl_team);
@@ -597,42 +792,18 @@ function renderLivePlayer(state, paused) {
     bidInput.step = '0.25';
   }
 
-  const bidBtn = el('bid-btn'), undoBtn = el('undo-bid-btn');
-  // Guard: squad full or OS limit reached
-  const mySquadCount = _lastSquadData.length;
-  const myOSCount    = _lastSquadData.filter(r => r.player?.is_overseas).length;
-  const slotsLeft    = 12 - mySquadCount;
-  const squadFull    = mySquadCount >= 12;
-  const osBlocked    = p.is_overseas && myOSCount >= 4;
-
-  // Role-limit check: can squad be legally completed if we skip this role?
-  // Count remaining available players per role to warn if role gap unfillable
-  let roleBlocked = false, roleBlockMsg = '';
-  if (!squadFull && slotsLeft > 0) {
-    const roleCounts = {};
-    _lastSquadData.forEach(r => { if (r.player?.role) roleCounts[r.player.role] = (roleCounts[r.player.role]||0)+1; });
-    const needed = {
-      'Wicket-Keeper': Math.max(0, 1 - (roleCounts['Wicket-Keeper']||0)),
-      'Batter':        Math.max(0, 2 - (roleCounts['Batter']||0)),
-      'Bowler':        Math.max(0, 3 - (roleCounts['Bowler']||0)),
-      'All-Rounder':   Math.max(0, 2 - (roleCounts['All-Rounder']||0)),
-    };
-    const totalNeeded = Object.values(needed).reduce((a,b)=>a+b,0);
-    // If bidding on this player would leave too few slots for mandatory roles
-    if (p.role && needed[p.role] === 0 && totalNeeded >= slotsLeft) {
-      roleBlocked = true;
-      roleBlockMsg = `Role cap: need ${totalNeeded} mandatory role(s) in ${slotsLeft} slot(s) left`;
-    }
+  // Refresh squad data when a new player comes on (player changed)
+  if (el('player-card')?.dataset.renderedFor !== String(p.id)) {
+    try { await loadSquad(); } catch(_) {}
   }
 
-  const bidBlocked = squadFull || osBlocked || roleBlocked;
-
+  const bidBtn = el('bid-btn'), undoBtn = el('undo-bid-btn');
+  // ── Unified bid validation (uses computeBidBlock) ──
+  const { blocked: bidBlocked, msg: bidBlockMsg } = computeBidBlock(_lastSquadData, p, []);
   const errEl = el('bid-error');
   if (bidBlocked && errEl) {
-    errEl.textContent = squadFull ? `Squad full (${mySquadCount}/12) — cannot bid`
-      : osBlocked ? `Overseas limit (${myOSCount}/4) — cannot bid on overseas players`
-      : roleBlockMsg;
-  } else if (errEl && (errEl.textContent.includes('Squad full') || errEl.textContent.includes('Overseas') || errEl.textContent.includes('Role cap'))) {
+    errEl.textContent = bidBlockMsg;
+  } else if (errEl && errEl.textContent) {
     errEl.textContent = '';
   }
 
@@ -647,6 +818,7 @@ function renderLivePlayer(state, paused) {
   }
 
   hide('no-auction'); hide('set-auction-view'); hide('rtm-pending'); show('player-card');
+  if (!_samePlayer) renderUpcomingSets();  // refresh upcoming panel below live card
   if (paused) { stopTimer(); const t = el('timer'); if (t) { t.textContent = 'Paused'; t.className = 'timer'; } }
   else startTimer(state.bid_timer_end);
 }
@@ -762,7 +934,11 @@ async function renderSetInPlayerCard(state) {
   const latestEnd = slots.reduce((mx,s) => Math.max(mx, s.bid_timer_end ? new Date(s.bid_timer_end).getTime() : 0), 0);
 
   const existingGrid = el('set-slots-grid');
-  if (!existingGrid) {
+  // Rebuild if: grid doesn't exist OR it was built for a different set (stale from prev set)
+  const needsRebuild = !existingGrid || (existingGrid.dataset.setName !== state.current_set_name);
+  if (needsRebuild) {
+    // Reset set timer state so it recalculates totalSec for new set
+    _setTimerEndMs = 0;
     const cards = slots.map(slot => buildSlotCardHTML(slot)).join('');
     el('player-card').innerHTML = `
       <div class="set-auction-header" style="margin-bottom:12px;">
@@ -776,7 +952,7 @@ async function renderSetInPlayerCard(state) {
           <div class="timer-progress-track"></div><div class="timer-progress-bar tp-green" id="set-timer-bar"></div>
         </div>
       </div>
-      <div class="team-set-slots-grid" id="set-slots-grid">${cards}</div>`;
+      <div class="team-set-slots-grid" id="set-slots-grid" data-set-name="${state.current_set_name||''}">${cards}</div>`;
   } else {
     slots.forEach(slot => patchSlotCard(slot));
   }
@@ -988,7 +1164,7 @@ let _allTeamsHash = '';
 async function loadAllTeams() {
   try {
     const { data: teams } = await sb.from('teams')
-      .select('id,team_name,purse_remaining,is_advantage_holder,rtm_cards_total,rtm_cards_used')
+      .select('id,team_name,purse_remaining,is_advantage_holder,rtm_cards_total,rtm_cards_used,last_seen')
       .order('team_name');
     if (!teams) return;
     const { data: squad } = await sb.from('team_players')
@@ -1030,12 +1206,17 @@ function renderAllTeams() {
     const isMe   = t.id === myTeam?.id;
     const purse  = Number(t.purse_remaining);
     const purseColor = purse <= 5 ? 'var(--red)' : purse <= 10 ? '#f6ad55' : 'var(--gold)';
+    const pres   = presenceLabel(t.last_seen);
     return `<tr class="${isMe?'row-mine':''}">
       <td>
-        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:${isMe?'800':'700'};font-size:14px;">${t.team_name}</span>
-        ${t.is_advantage_holder?' <span class="tag tag-advantage" style="font-size:9px;padding:1px 4px;">⭐</span>':''}
-        ${rtmRem>0?` <span class="tag tag-rtm" style="font-size:9px;padding:1px 4px;">RTM×${rtmRem}</span>`:''}
-        ${isMe?' <span style="font-size:10px;color:var(--gold);font-style:italic;">(you)</span>':''}
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+          <span class="presence-dot ${pres.cls}" title="${pres.text}"></span>
+          <span style="font-family:'Barlow Condensed',sans-serif;font-weight:${isMe?'800':'700'};font-size:14px;">${t.team_name}</span>
+          ${t.is_advantage_holder?'<span class="tag tag-advantage" style="font-size:9px;padding:1px 4px;">⭐</span>':''}
+          ${rtmRem>0?`<span class="tag tag-rtm" style="font-size:9px;padding:1px 4px;">RTM×${rtmRem}</span>`:''}
+          ${isMe?'<span style="font-size:10px;color:var(--gold);font-style:italic;">(you)</span>':''}
+        </div>
+        <div class="presence-lbl ${pres.cls}">${pres.text}</div>
       </td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:${purseColor};white-space:nowrap;">
         ₹${purse.toFixed(1)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>
@@ -1050,22 +1231,119 @@ function renderAllTeams() {
   }).join('');
 }
 
+// ── Presence helpers ─────────────────────────────────────────
+function presenceLabel(lastSeenIso) {
+  if (!lastSeenIso) return { text: 'Inactive', cls: 'presence-inactive' };
+  const diffMs  = Date.now() - new Date(lastSeenIso).getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 2)  return { text: 'Active now',           cls: 'presence-active' };
+  if (diffMin < 10) return { text: diffMin + 'm ago',      cls: 'presence-recent' };
+  if (diffMin < 60) return { text: diffMin + 'm ago',      cls: 'presence-idle' };
+  return { text: 'Inactive', cls: 'presence-inactive' };
+}
+
+// ── Core bid validation: pure function (used by single + set bid) ──────
+// squad:        array of {player: {role, is_overseas, is_uncapped}}
+// player:       the player being bid on {role, is_overseas, is_uncapped}
+// committedRoles: roles already committed in OTHER live set slots (for set auction)
+//                 e.g. ['All-Rounder', 'All-Rounder'] if leading 2 AR slots
+function computeBidBlock(squad, player, committedRoles) {
+  committedRoles = committedRoles || [];
+  const totalSquad   = squad.length + committedRoles.length; // effective squad after set wins
+  const slotsLeft    = 12 - totalSquad;
+
+  // Squad full
+  if (totalSquad >= 12) return { blocked: true, msg: 'Squad full (' + totalSquad + '/12) — cannot bid' };
+
+  // Overseas check
+  const osCount = squad.filter(r => r.player?.is_overseas).length;
+  if (player.is_overseas && osCount >= 4) return { blocked: true, msg: 'Overseas limit reached (4/4)' };
+
+  // Count roles already in squad + already-committed set slots
+  const rc = {};
+  squad.forEach(r => { const role = r.player?.role; if (role) rc[role] = (rc[role]||0) + 1; });
+  committedRoles.forEach(role => { if (role) rc[role] = (rc[role]||0) + 1; });
+
+  const need = {
+    'Wicket-Keeper': Math.max(0, 1 - (rc['Wicket-Keeper']||0)),
+    'Batter':        Math.max(0, 2 - (rc['Batter']||0)),
+    'Bowler':        Math.max(0, 3 - (rc['Bowler']||0)),
+    'All-Rounder':   Math.max(0, 2 - (rc['All-Rounder']||0)),
+  };
+  const totalNeed = Object.values(need).reduce((a,b)=>a+b,0);
+
+  // Count uncapped players in squad + committed
+  const ucCount = squad.filter(r => r.player?.is_uncapped).length
+    + committedRoles.filter(r => r === '_uncapped_').length; // sentinel if needed
+
+  // Uncapped constraint: if 1 slot left, no uncapped yet, and this player is capped
+  const slotsAfterThisBid = slotsLeft - 1;
+  if (slotsLeft === 1 && ucCount === 0 && !player.is_uncapped) {
+    return { blocked: true, msg: 'Last slot must be an Uncapped player (0 uncapped in squad yet)' };
+  }
+
+  if (totalNeed > 0 && slotsLeft > 0) {
+    const thisNeed = need[player.role] || 0;
+    if (thisNeed === 0 && totalNeed >= slotsLeft) {
+      // This player's role is not needed AND mandatory roles fill all remaining slots
+      const needList = Object.entries(need).filter(([,n])=>n>0)
+        .map(([r,n]) => n + '× ' + r.replace('Wicket-Keeper','WK').replace('All-Rounder','AR')).join(', ');
+      return {
+        blocked: true,
+        msg: 'Role constraint: must still secure [' + needList + '] — ' + slotsLeft + ' slot(s) left'
+      };
+    }
+  }
+
+  return { blocked: false, msg: '' };
+}
+
+async function pingPresence() {
+  try { await sb.rpc('ping_presence'); } catch(_) {}
+}
+
 // ── Timers ────────────────────────────────────────────────────
+// Server-clock offset: positive means server is ahead of browser
+let _serverClockOffset = 0;  // ms
+async function syncServerClock() {
+  try {
+    const t0 = Date.now();
+    const { data } = await sb.from('auction_state').select('last_action_at').eq('id',1).maybeSingle();
+    // Use round-trip time to estimate offset — rough but better than nothing
+    // We just fetch Supabase's current time via a known timestamp field
+    // For precise sync use Date header from response, but we work with what we have
+    const rtt = Date.now() - t0;
+    // If last_action_at is very recent, we can calibrate
+    if (data?.last_action_at) {
+      const serverMs = new Date(data.last_action_at).getTime();
+      // Heuristic: if server time seems ahead, it's clock drift
+      // We don't use this directly but reset drift to 0 to avoid overcomplication
+    }
+    _serverClockOffset = 0; // Supabase is authoritative UTC; just keep 0
+  } catch(_) {}
+}
+
+function serverNow() { return Date.now() + _serverClockOffset; }
+
 let _timerEndMs = 0, _timerTotalSec = 60;
 function startTimer(endTime) {
+  if (!endTime) return;
   const newEndMs = new Date(endTime).getTime();
+  if (isNaN(newEndMs)) return;
   // Only reset totalSec when this is a fresh timer (end time changed by >2s)
   if (Math.abs(newEndMs - _timerEndMs) > 2000) {
-    _timerEndMs   = newEndMs;
-    _timerTotalSec = Math.max(1, Math.ceil((newEndMs - Date.now()) / 1000));
+    _timerEndMs    = newEndMs;
+    const rawSec   = Math.ceil((newEndMs - serverNow()) / 1000);
+    // If server time ahead of us, rawSec could be negative — use absolute
+    _timerTotalSec = Math.max(1, Math.abs(rawSec) > 300 ? 60 : rawSec);
   }
   stopTimer();
   const endMs    = newEndMs;
   const totalSec = _timerTotalSec;
   function tick() {
-    const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+    const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
     const t   = el('timer'); if (!t) { stopTimer(); return; }
-    t.textContent = rem + 's';
+    t.textContent = rem > 0 ? rem + 's' : '0s';
     t.className   = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
     const pct = Math.max(0, Math.min(100, (rem / totalSec) * 100));
     const bar = el('timer-bar');
@@ -1103,11 +1381,12 @@ function startSetTimer(endMs) {
   stopSetTimer(); if (!endMs) return;
   if (Math.abs(endMs - _setTimerEndMs) > 2000) {
     _setTimerEndMs    = endMs;
-    _setTimerTotalSec = Math.max(1, Math.ceil((endMs - Date.now()) / 1000));
+    const rawSec      = Math.ceil((endMs - serverNow()) / 1000);
+    _setTimerTotalSec = Math.max(1, Math.abs(rawSec) > 300 ? 60 : rawSec);
   }
   const totalSetSec = _setTimerTotalSec;
   function tick() {
-    const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+    const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
     const t   = el('set-timer'); if (!t) { stopSetTimer(); return; }
     t.textContent = rem + 's';
     t.className   = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
@@ -1150,6 +1429,29 @@ async function placeBid() {
   const errEl = el('bid-error'), bidBtn = el('bid-btn'), input = el('bid-input');
   if (!input || !bidBtn) return;
   errEl.textContent = '';
+
+  // Re-check with FRESH squad data from server, then unified validation
+  const p = currentState?.current_player;
+  try {
+    const { data: freshRows } = await sb.from('team_players')
+      .select('player:players_master(role,is_overseas,is_uncapped)').eq('team_id', myTeam.id);
+    if (freshRows) _lastSquadData = freshRows;
+  } catch(_) { /* fall back to cached */ }
+
+  if (p) {
+    const { blocked, msg } = computeBidBlock(_lastSquadData, p, []);
+    if (blocked) {
+      if (errEl) errEl.textContent = msg;
+      // Categorise toast type by message prefix
+      const isSquad = msg.includes('Squad full');
+      const isOS    = msg.includes('Overseas');
+      const isUC    = msg.includes('Uncapped');
+      const ttl     = isSquad ? 'Squad Full' : isOS ? 'Overseas Limit' : isUC ? 'Uncapped Required' : 'Role Constraint';
+      toast(ttl, msg, 'error');
+      return;
+    }
+  }
+
   const raw = parseFloat(input.value);
   if (isNaN(raw) || raw <= 0) { errEl.textContent = 'Enter a valid amount'; toast('Invalid Bid', 'Please enter a valid bid amount', 'warn'); return; }
   const amount = Math.round(raw / 0.25) * 0.25;
@@ -1215,8 +1517,43 @@ async function placeSetBid(slotId) {
 
   const totalCommitted = amount + myCurrentWinningBids;
   if (totalCommitted > myTeam.purse_remaining) {
-    if (errEl) errEl.textContent = `Total across all slots (₹${totalCommitted.toFixed(2)} Cr) exceeds purse (₹${myTeam.purse_remaining.toFixed(2)} Cr)`;
-    return;
+    const msg = `Total across all slots (₹${totalCommitted.toFixed(2)} Cr) exceeds purse (₹${myTeam.purse_remaining.toFixed(2)} Cr)`;
+    if (errEl) errEl.textContent = msg;
+    toast('Purse Exceeded', msg, 'error'); return;
+  }
+
+  // ── Squad/role validation for set bid ──
+  // committedRoles = roles of set slots I'm currently leading (excluding this one)
+  if (currentState?.status === 'set_live') {
+    // Refresh squad data
+    try {
+      const { data: fr } = await sb.from('team_players')
+        .select('player:players_master(role,is_overseas,is_uncapped)').eq('team_id', myTeam.id);
+      if (fr) _lastSquadData = fr;
+    } catch(_) {}
+
+    // Collect roles I'm currently winning in OTHER slots
+    const committedRoles = [];
+    document.querySelectorAll('[id^="set-card-"].sc-leading').forEach(card => {
+      const cSlotId = card.id.replace('set-card-', '');
+      if (cSlotId === String(slotId)) return; // skip this slot
+      // Find player role for this slot from currentState set slots
+      const slot = currentState._setSlots?.find(s => String(s.id) === cSlotId);
+      if (slot?.player?.role) committedRoles.push(slot.player.role);
+      if (slot?.player?.is_uncapped) committedRoles.push('_uncapped_'); // sentinel
+    });
+
+    // Find the player for THIS slot
+    const thisSlot = currentState._setSlots?.find(s => String(s.id) === String(slotId));
+    if (thisSlot?.player) {
+      const { blocked, msg } = computeBidBlock(_lastSquadData, thisSlot.player, committedRoles);
+      if (blocked) {
+        if (errEl) errEl.textContent = msg;
+        const ttl = msg.includes('Squad') ? 'Squad Full' : msg.includes('Overseas') ? 'Overseas Limit'
+          : msg.includes('Uncapped') ? 'Uncapped Required' : 'Role Constraint';
+        toast(ttl, msg, 'error'); return;
+      }
+    }
   }
 
   if (btn && btn._inFlight) return; if (btn) { btn._inFlight = true; btn.disabled = true; btn.textContent = 'Placing…'; }
@@ -1341,6 +1678,75 @@ async function loadStats() {
 }
 
 function renderRolePool(pool) { /* legacy stub — now rendered inline in loadStats */ }
+
+// ── Upcoming sets display (shown in waiting state) ───────────
+let _upcomingCache = '';
+async function renderUpcomingSets() {
+  const cont = el('upcoming-sets-wrap'); if (!cont) return;
+  try {
+    // Fetch players not yet sold or unsold, ordered by set
+    const [{ data: avail }, { data: soldRows }, { data: st }] = await Promise.all([
+      sb.from('players_master')
+        .select('id,name,role,ipl_team,base_price,is_overseas,is_uncapped,set_no,set_name,image_url')
+        .order('set_no', { ascending: true })
+        .order('name',   { ascending: true }),
+      sb.from('team_players').select('player_id'),
+      sb.from('auction_state').select('unsold_player_ids').eq('id',1).maybeSingle(),
+    ]);
+    const soldIds   = new Set((soldRows||[]).map(r=>r.player_id));
+    const unsoldIds = new Set(Array.isArray(st?.unsold_player_ids)?st.unsold_player_ids:[]);
+    const players   = (avail||[]).filter(p => !soldIds.has(p.id) && !unsoldIds.has(p.id));
+
+    // Group by set
+    const setMap = {};
+    players.forEach(p => {
+      const s = p.set_name || 'Uncategorised';
+      if (!setMap[s]) setMap[s] = { set_no: p.set_no, players: [] };
+      setMap[s].players.push(p);
+    });
+    const setNames = Object.keys(setMap).sort((a,b) => {
+      const na = setMap[a].set_no ?? 999, nb = setMap[b].set_no ?? 999;
+      return na - nb || a.localeCompare(b);
+    });
+
+    const cacheKey = setNames.join('|') + players.length;
+    if (cacheKey === _upcomingCache) return;
+    _upcomingCache = cacheKey;
+
+    if (!setNames.length) { cont.innerHTML = ''; return; }
+
+    const roleIcon = { 'Batter':'BAT','Bowler':'BOWL','All-Rounder':'AR','Wicket-Keeper':'WK' };
+
+    cont.innerHTML = setNames.map(sName => {
+      const { set_no, players: ps } = setMap[sName];
+      const chips = ps.slice(0, 8).map(p => `
+        <div class="up-player-chip">
+          <img src="${p.image_url||''}" onerror="this.style.display='none'" alt="">
+          <div class="up-chip-info">
+            <div class="up-chip-name">${p.name}</div>
+            <div class="up-chip-meta">
+              <span class="up-role-tag">${roleIcon[p.role]||p.role||'—'}</span>
+              <span class="up-ipl-tag">${p.ipl_team||'—'}</span>
+              ${p.is_overseas?'<span class="tag tag-overseas" style="font-size:9px;padding:1px 4px;">OS</span>':''}
+              ${p.is_uncapped?'<span class="tag tag-uncapped" style="font-size:9px;padding:1px 4px;">UC</span>':''}
+            </div>
+          </div>
+          <div class="up-chip-base">₹${p.base_price}</div>
+        </div>`).join('');
+      const more = ps.length > 8 ? `<div class="up-more">+${ps.length-8} more players</div>` : '';
+      const isCurrentSet = currentState?.current_set_name === sName;
+      return `<div class="up-set-card${isCurrentSet?' up-set-live':''}">
+        <div class="up-set-header">
+          <span class="up-set-name">${sName}</span>
+          ${isCurrentSet?'<span class="up-set-live-badge">LIVE NOW</span>':''}
+          <span class="up-set-count">${ps.length} player${ps.length!==1?'s':''} remaining</span>
+        </div>
+        <div class="up-players-grid">${chips}${more}</div>
+      </div>`;
+    }).join('');
+    conts.forEach(c => { c.innerHTML = rendered; });
+  } catch(e) { console.warn('[renderUpcomingSets]', e.message); }
+}
 
 // ── Squad with full validation ────────────────────────────────
 async function loadSquad() {

@@ -9,7 +9,7 @@
   <title>BFL Auction — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=42">
+  <link rel="stylesheet" href="css/styles.css?v=45">
 </head>
 <body>
 
@@ -184,7 +184,7 @@
               <col class="col-team"><col class="col-purse"><col class="col-sq"><col class="col-os">
             </colgroup>
             <thead><tr>
-              <th onclick="adminSortTeams('team_name')" id="ath-name">Team am</th>
+              <th onclick="adminSortTeams('team_name')" id="ath-name">Team</th>
               <th onclick="adminSortTeams('purse_remaining')" id="ath-purse">Purse</th>
               <th onclick="adminSortTeams('playerCount')" id="ath-squad">Squad</th>
               <th onclick="adminSortTeams('osCount')" id="ath-os">OS</th>
@@ -401,11 +401,11 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=42"></script>
+<script src="js/localstorage-shim.js?v=45"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=42"></script>
-<script src="js/supabaseClient.js?v=42"></script>
-<script src="js/admin.js?v=42"></script>
+<script src="js/modal.js?v=45"></script>
+<script src="js/supabaseClient.js?v=45"></script>
+<script src="js/admin.js?v=45"></script>
 
 
 <!-- ── Day Settings Modal ────────────────────────────────── -->
@@ -431,17 +431,6 @@
 
       <div class="dm-divider"></div>
 
-      <!-- Dates -->
-      <div class="dm-section">
-        <div class="dm-section-lbl">Auction Date</div>
-        <div class="dm-field-row">
-          <label class="dm-field-lbl">Date</label>
-          <input type="date" class="dm-input" id="dm-date">
-        </div>
-      </div>
-
-      <div class="dm-divider"></div>
-
       <!-- Daily timing -->
       <div class="dm-section">
         <div class="dm-section-lbl">Daily Schedule</div>
@@ -457,16 +446,21 @@
 
       <div class="dm-divider"></div>
 
-      <!-- Bid timer override -->
+      <!-- Timer settings -->
       <div class="dm-section">
-        <div class="dm-section-lbl">Bid Timer <span class="dm-badge">seconds</span></div>
-        <div class="dm-field-row">
-          <label class="dm-field-lbl">Duration</label>
+        <div class="dm-section-lbl">Timer Settings <span class="dm-badge">seconds</span></div>
+        <div class="dm-field-row" style="margin-bottom:8px;">
+          <label class="dm-field-lbl">Single Player</label>
           <input type="number" class="dm-input" id="dm-bid-timer" min="15" max="300" step="5" value="60" style="width:90px;">
           <span class="dm-hint" id="dm-timer-hint">Default</span>
         </div>
-        <div class="dm-auto-calc" id="dm-auto-calc" onclick="dmResetBidTimer()" title="Click to override">
-          Auto-calc from end time
+        <div class="dm-field-row">
+          <label class="dm-field-lbl">Set Auction</label>
+          <input type="number" class="dm-input" id="dm-set-timer" min="30" max="600" step="10" value="90" style="width:90px;">
+          <span class="dm-hint" id="dm-set-timer-hint">Default</span>
+        </div>
+        <div class="dm-auto-calc" id="dm-auto-calc" onclick="dmResetBidTimer()" title="Click to reset to auto-calculated values">
+          Auto-calc from session length
         </div>
       </div>
 
