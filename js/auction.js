@@ -389,7 +389,7 @@ async function fetchState() {
 
     if (state.status === 'set_live' && state.current_set_name) {
       const { data: slots } = await sb.from('auction_slots')
-        .select('id,current_highest_bid,current_highest_team_id,second_highest_bid,second_highest_team_id,bid_timer_end,player:players_master(id,name,role,is_overseas,is_uncapped)')
+        .select('id,current_highest_bid,current_highest_team_id,second_highest_bid,second_highest_team_id,bid_timer_end,player:players_master(id,name,role,is_overseas,is_uncapped,ipl_team)')
         .eq('set_name', state.current_set_name).eq('status', 'live');
       const sh = (slots||[]).map(s => s.id+':'+s.current_highest_bid+':'+s.current_highest_team_id+':'+s.second_highest_bid).join('|');
       if (sh !== _lastSlotsHash) { _lastSlotsHash = sh; _lastStateHash = ''; }
@@ -665,8 +665,16 @@ function renderLastResult(state) {
   if (lrHash === _lastResultHash) return;
   _lastResultHash = lrHash;
   if (!state.last_player_result) { cont.innerHTML = ''; return; }
+  // Never show full player banner for cancelled — player data may be missing (current_player_id was cleared)
+  if (state.last_player_result === 'cancelled') {
+    cont.innerHTML = ''; return;  // no-auction-msg handles this case already
+  }
   // Never show a banner when player data is missing — would show "Unknown · Unsold UNSOLD"
   if ((state.last_player_result === 'unsold' || state.last_player_result === 'sold') && !state.last_player) {
+    cont.innerHTML = ''; return;
+  }
+  // Never show a banner for cancelled — player was just returned to pool, no result to display
+  if (state.last_player_result === 'cancelled') {
     cont.innerHTML = ''; return;
   }
 
@@ -888,7 +896,7 @@ async function renderLivePlayer(state, paused) {
 
   const bidBtn = el('bid-btn'), undoBtn = el('undo-bid-btn');
   // ── Unified bid validation (uses computeBidBlock) ──
-  const { blocked: bidBlocked, msg: bidBlockMsg } = computeBidBlock(_lastSquadData, p, []);
+  const { blocked: bidBlocked, msg: bidBlockMsg } = computeBidBlock(_lastSquadData, p, [], myTeam?.is_advantage_holder);
   const errEl = el('bid-error');
   if (bidBlocked && errEl) {
     errEl.textContent = bidBlockMsg;
@@ -1341,7 +1349,8 @@ function presenceLabel(lastSeenIso) {
 // squad         : _lastSquadData rows  {player: {role, is_overseas, is_uncapped}}
 // player        : the candidate player {role, is_overseas, is_uncapped}
 // committedSlots: array of {role, is_uncapped} for other set slots currently leading
-function computeBidBlock(squad, player, committedSlots) {
+// isAdvantageHolder: if true, skip IPL franchise limit (passed in as 4th param)
+function computeBidBlock(squad, player, committedSlots, isAdvantageHolder) {
   committedSlots = committedSlots || [];
 
   // Effective squad = real players + already-winning set slots (1 per slot, no sentinel)
@@ -1352,10 +1361,21 @@ function computeBidBlock(squad, player, committedSlots) {
   if (totalSquad >= 12)
     return { blocked: true, msg: 'Squad full (' + totalSquad + '/12) — cannot bid' };
 
-  // ── Overseas limit ────────────────────────────────────────
-  const osCount = squad.filter(r => r.player?.is_overseas).length;
-  if (player.is_overseas && osCount >= 4)
-    return { blocked: true, msg: 'Overseas limit reached (4/4)' };
+  // ── Overseas limit — counts real squad + committed set slots ──────────────
+  const osInSquad     = squad.filter(r => r.player?.is_overseas).length;
+  const osCommitted   = committedSlots.filter(s => s.is_overseas).length;
+  const osTotal       = osInSquad + osCommitted;
+  if (player.is_overseas && osTotal >= 4)
+    return { blocked: true, msg: 'Overseas limit reached (4/4 — including set slots you are winning)' };
+
+  // ── IPL franchise limit (max 3 per IPL team, advantage holders exempt) ────
+  if (player.ipl_team && !isAdvantageHolder) {
+    const iplInSquad   = squad.filter(r => r.player?.ipl_team === player.ipl_team).length;
+    const iplCommitted = committedSlots.filter(s => s.ipl_team === player.ipl_team).length;
+    const iplTotal     = iplInSquad + iplCommitted;
+    if (iplTotal >= 3)
+      return { blocked: true, msg: 'Franchise limit: already have ' + iplTotal + ' players from ' + player.ipl_team + ' (max 3)' };
+  }
 
   // ── Role counts: real squad + committed set slots ─────────
   const rc = {};
@@ -1726,13 +1746,18 @@ async function placeSetBid(slotId) {
       const cSlotId = card.id.replace('set-card-', '');
       if (cSlotId === String(slotId)) return; // skip this slot (replacing our own bid)
       const slot = currentState._setSlots?.find(s => String(s.id) === cSlotId);
-      if (slot?.player) committedSlots.push({ role: slot.player.role, is_uncapped: !!slot.player.is_uncapped });
+      if (slot?.player) committedSlots.push({
+        role:       slot.player.role,
+        is_uncapped: !!slot.player.is_uncapped,
+        is_overseas: !!slot.player.is_overseas,   // needed for overseas limit check
+        ipl_team:   slot.player.ipl_team || null, // needed for franchise limit check
+      });
     });
 
     // Find the player for THIS slot
     const thisSlot = currentState._setSlots?.find(s => String(s.id) === String(slotId));
     if (thisSlot?.player) {
-      const { blocked, msg } = computeBidBlock(_lastSquadData, thisSlot.player, committedSlots);
+      const { blocked, msg } = computeBidBlock(_lastSquadData, thisSlot.player, committedSlots, myTeam?.is_advantage_holder);
       if (blocked) {
         if (errEl) errEl.textContent = msg;
         const ttl = msg.includes('Squad') ? 'Squad Full' : msg.includes('Overseas') ? 'Overseas Limit'

@@ -9,7 +9,7 @@
   <title>BFL Auction — Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=55">
+  <link rel="stylesheet" href="css/styles.css?v=56">
 </head>
 <body>
 
@@ -401,11 +401,11 @@
   </div>
 </div>
 
-<script src="js/localstorage-shim.js?v=55"></script>
+<script src="js/localstorage-shim.js?v=56"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/modal.js?v=55"></script>
-<script src="js/supabaseClient.js?v=55"></script>
-<script src="js/admin.js?v=55"></script>
+<script src="js/modal.js?v=56"></script>
+<script src="js/supabaseClient.js?v=56"></script>
+<script src="js/admin.js?v=56"></script>
 
 
 <!-- ── Day Settings Modal ────────────────────────────────── -->
@@ -451,13 +451,19 @@
         <div class="dm-section-lbl">Timer Settings <span class="dm-badge">seconds</span></div>
         <div class="dm-field-row" style="margin-bottom:8px;">
           <label class="dm-field-lbl">Single Player</label>
-          <input type="number" class="dm-input" id="dm-bid-timer" min="15" max="300" step="5" value="60" style="width:90px;">
-          <span class="dm-hint" id="dm-timer-hint">Default</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <input type="number" class="dm-input" id="dm-bid-timer" min="30" max="600" step="5" value="60" style="width:80px;" oninput="updateTimerHint('dm-bid-timer','dm-timer-hint')">
+            <span style="font-size:11px;color:var(--muted);">sec</span>
+            <span class="dm-hint" id="dm-timer-hint">= 1 min 0 sec</span>
+          </div>
         </div>
         <div class="dm-field-row">
           <label class="dm-field-lbl">Set Auction</label>
-          <input type="number" class="dm-input" id="dm-set-timer" min="30" max="600" step="10" value="90" style="width:90px;">
-          <span class="dm-hint" id="dm-set-timer-hint">Default</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <input type="number" class="dm-input" id="dm-set-timer" min="30" max="1800" step="10" value="90" style="width:80px;" oninput="updateTimerHint('dm-set-timer','dm-set-timer-hint')">
+            <span style="font-size:11px;color:var(--muted);">sec</span>
+            <span class="dm-hint" id="dm-set-timer-hint">= 1 min 30 sec</span>
+          </div>
         </div>
         <div class="dm-auto-calc" id="dm-auto-calc" onclick="dmResetBidTimer()" title="Click to reset to auto-calculated values">
           Auto-calc from session length

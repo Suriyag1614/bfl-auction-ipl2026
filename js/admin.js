@@ -100,8 +100,14 @@ async function promptSetDay() {
     if (aState) {
       const bidDef = el('dm-bid-timer');
       const setDef = el('dm-set-timer');
-      if (bidDef && aState.bid_timer_default) bidDef.value = aState.bid_timer_default;
-      if (setDef && aState.set_timer_default) setDef.value = aState.set_timer_default;
+      if (bidDef && aState.bid_timer_default) {
+        bidDef.value = aState.bid_timer_default;
+        updateTimerHint('dm-bid-timer', 'dm-timer-hint');
+      }
+      if (setDef && aState.set_timer_default) {
+        setDef.value = aState.set_timer_default;
+        updateTimerHint('dm-set-timer', 'dm-set-timer-hint');
+      }
       if (aState.auction_day) { _dmDayVal = aState.auction_day; el('dm-day-val').textContent = _dmDayVal; }
       // Populate start/end from DB if saved
       if (aState.day_start) {
@@ -235,8 +241,13 @@ async function saveDaySettings() {
   const today    = new Date().toLocaleDateString('en-CA');
   const start    = el('dm-start')?.value;
   const end      = el('dm-end')?.value;
-  const bidTimer    = parseInt(el('dm-bid-timer')?.value)    || 60;
-  const setTimer    = parseInt(el('dm-set-timer')?.value)    || 90;
+  const bidTimerRaw = parseInt(el('dm-bid-timer')?.value) || 60;
+  const setTimerRaw = parseInt(el('dm-set-timer')?.value) || 90;
+  const bidTimer    = Math.max(30, Math.min(600, bidTimerRaw));   // 30s–600s
+  const setTimer    = Math.max(30, Math.min(1800, setTimerRaw));  // 30s–1800s (30min)
+  // Update inputs to reflect clamped values
+  if (el('dm-bid-timer')) { el('dm-bid-timer').value = bidTimer; updateTimerHint('dm-bid-timer','dm-timer-hint'); }
+  if (el('dm-set-timer')) { el('dm-set-timer').value = setTimer; updateTimerHint('dm-set-timer','dm-set-timer-hint'); }
 
   const startIso = start ? new Date(today + 'T' + start).toISOString() : null;
   const endIso   = end   ? new Date(today + 'T' + end).toISOString()   : null;
@@ -266,6 +277,22 @@ async function setAuctionDay(day) {
   // Legacy stub
   const { error } = await sb.from('auction_state').update({ auction_day: day }).eq('id', 1);
   if (error) { toast('Error Occurred', error.message, 'error'); return; }
+}
+
+function updateTimerHint(inputId, hintId) {
+  const inp  = el(inputId);
+  const hint = el(hintId);
+  if (!inp || !hint) return;
+  const secs = parseInt(inp.value) || 0;
+  if (secs <= 0) { hint.textContent = '—'; return; }
+  const hrs  = Math.floor(secs / 3600);
+  const mins = Math.floor((secs % 3600) / 60);
+  const sec  = secs % 60;
+  let parts = [];
+  if (hrs  > 0) parts.push(hrs  + ' hr'  + (hrs  > 1 ? 's' : ''));
+  if (mins > 0) parts.push(mins + ' min' + (mins > 1 ? 's' : ''));
+  if (sec  > 0 || parts.length === 0) parts.push(sec + ' sec');
+  hint.textContent = '= ' + parts.join(' ');
 }
 let _serverClockOffset = 0;
 function serverNow() { return Date.now() + _serverClockOffset; }
@@ -620,9 +647,11 @@ async function cancelLiveAuction() {
       }).eq('id', cs.current_highest_team_id);
     }
   }
+  const cancelledPlayerId = cs?.current_player_id || null;
   const { error } = await sb.from('auction_state').update({
     status: 'waiting',
     last_player_result: 'cancelled',
+    last_player_id: cancelledPlayerId,  // preserve so renderLastResult can guard on it
     current_player_id: null,
     current_highest_bid: 0,
     current_highest_team_id: null,
