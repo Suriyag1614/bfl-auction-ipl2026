@@ -96,12 +96,13 @@ async function promptSetDay() {
   // Pre-fill timer fields from current DB values if available
   try {
     const { data: aState } = await sb.from('auction_state')
-      .select('bid_timer_default,set_timer_default,auction_day,day_start,day_end').eq('id',1).maybeSingle();
+      .select('bid_duration_seconds,bid_timer_default,set_timer_default,auction_day,day_start,day_end').eq('id',1).maybeSingle();
     if (aState) {
       const bidDef = el('dm-bid-timer');
       const setDef = el('dm-set-timer');
-      if (bidDef && aState.bid_timer_default) {
-        bidDef.value = aState.bid_timer_default;
+      // Prefer bid_duration_seconds (the live value), fall back to bid_timer_default
+      if (bidDef && (aState.bid_duration_seconds || aState.bid_timer_default)) {
+        bidDef.value = aState.bid_duration_seconds || aState.bid_timer_default;
         updateTimerHint('dm-bid-timer', 'dm-timer-hint');
       }
       if (setDef && aState.set_timer_default) {
@@ -169,10 +170,10 @@ function _dmAutoCalcBidTimer() {
   const sessionMs = new Date(today+'T'+end).getTime() - new Date(today+'T'+start).getTime();
   if (sessionMs <= 0) return;
   // Single player: ~1% of session, capped 30-120s
-  const autoSingle = Math.min(120, Math.max(30, Math.round(sessionMs / 1000 / 100 / 5) * 5));
+  const autoSingle = Math.min(3600, Math.max(5, Math.round(sessionMs / 1000 / 100 / 5) * 5));
   el('dm-bid-timer').value = autoSingle;
-  // Set timer: 2× single player, capped 60-300s
-  const autoSet = Math.min(300, Math.max(60, autoSingle * 2));
+  // Set timer: 2× single player, capped to 24h
+  const autoSet = Math.min(7200, Math.max(10, autoSingle * 2));
   const setTimerEl = el('dm-set-timer');
   if (setTimerEl) setTimerEl.value = autoSet;
 }
@@ -243,8 +244,8 @@ async function saveDaySettings() {
   const end      = el('dm-end')?.value;
   const bidTimerRaw = parseInt(el('dm-bid-timer')?.value) || 60;
   const setTimerRaw = parseInt(el('dm-set-timer')?.value) || 90;
-  const bidTimer    = Math.max(30, Math.min(600, bidTimerRaw));   // 30s–600s
-  const setTimer    = Math.max(30, Math.min(1800, setTimerRaw));  // 30s–1800s (30min)
+  const bidTimer    = Math.max(5, Math.min(86400, bidTimerRaw));   // 5s–24h
+  const setTimer    = Math.max(5, Math.min(86400, setTimerRaw));   // 5s–24h
   // Update inputs to reflect clamped values
   if (el('dm-bid-timer')) { el('dm-bid-timer').value = bidTimer; updateTimerHint('dm-bid-timer','dm-timer-hint'); }
   if (el('dm-set-timer')) { el('dm-set-timer').value = setTimer; updateTimerHint('dm-set-timer','dm-set-timer-hint'); }
@@ -258,17 +259,22 @@ async function saveDaySettings() {
   const { error } = await sb.from('auction_state').update(update).eq('id', 1);
   if (error) { toast('Save Failed', error.message, 'error'); return; }
 
-  // Save both timer defaults (graceful — columns added via SQL migration)
+  // Save timer defaults — write to bid_duration_seconds (what start_auction RPC reads)
+  // and bid_timer_default/set_timer_default for display. Graceful if columns missing.
   try {
     await sb.from('auction_state').update({
-      bid_timer_default: bidTimer,
-      set_timer_default: setTimer,
+      bid_duration_seconds: bidTimer,      // ← what start_auction / start_set_auction use
+      bid_timer_default:    bidTimer,
+      set_timer_default:    setTimer,
     }).eq('id', 1);
-  } catch(_) {}
+  } catch(_) {
+    // Fallback: at minimum write bid_duration_seconds
+    try { await sb.from('auction_state').update({ bid_duration_seconds: bidTimer }).eq('id', 1); } catch(_) {}
+  }
 
   const dayEl = el('stat-day');
   if (dayEl) { dayEl.textContent = 'Day ' + _dmDayVal; dayEl.closest('.stat-chip')?.style.setProperty('border-color','var(--gold-dim)'); }
-  if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
+  if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save & Publish'; }
   toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · Single ' + bidTimer + 's · Set ' + setTimer + 's', 'success');
   closeDayModal();
 }
@@ -389,7 +395,7 @@ async function pollAdminState() {
   // Lightweight state check — only do heavy reload if something changed
   try {
     const { data: state } = await sb.from('auction_state')
-      .select('status,current_player_id,current_highest_bid,current_highest_team_id,bid_timer_end,rtm_pending,rtm_team_id,last_player_id,current_set_name,unsold_player_ids,autopilot_enabled,last_action_at')
+      .select('status,current_player_id,current_highest_bid,current_highest_team_id,bid_timer_end,rtm_pending,rtm_team_id,last_player_id,current_set_name,unsold_player_ids,autopilot_enabled,last_action_at,bid_duration_seconds,auction_day')
       .eq('id', 1).maybeSingle();
     if (!state) return;
 
@@ -405,7 +411,7 @@ async function pollAdminState() {
       state.current_highest_team_id, state.bid_timer_end, state.rtm_pending,
       state.rtm_team_id, state.last_player_id, state.current_set_name,
       (state.unsold_player_ids||[]).length, state.autopilot_enabled,
-      state.last_action_at
+      state.last_action_at, state.bid_duration_seconds, state.auction_day
     ].join('|');
     if (hash === _lastAdminStateHash) return; // nothing changed
     _lastAdminStateHash = hash;

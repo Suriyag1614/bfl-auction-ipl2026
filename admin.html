@@ -452,7 +452,7 @@
         <div class="dm-field-row" style="margin-bottom:8px;">
           <label class="dm-field-lbl">Single Player</label>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <input type="number" class="dm-input" id="dm-bid-timer" min="30" max="600" step="5" value="60" style="width:80px;" oninput="updateTimerHint('dm-bid-timer','dm-timer-hint')">
+            <input type="number" class="dm-input" id="dm-bid-timer" min="5" max="86400" step="5" value="60" style="width:80px;" oninput="updateTimerHint('dm-bid-timer','dm-timer-hint')">
             <span style="font-size:11px;color:var(--muted);">sec</span>
             <span class="dm-hint" id="dm-timer-hint">= 1 min 0 sec</span>
           </div>
@@ -460,7 +460,7 @@
         <div class="dm-field-row">
           <label class="dm-field-lbl">Set Auction</label>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <input type="number" class="dm-input" id="dm-set-timer" min="30" max="1800" step="10" value="90" style="width:80px;" oninput="updateTimerHint('dm-set-timer','dm-set-timer-hint')">
+            <input type="number" class="dm-input" id="dm-set-timer" min="5" max="86400" step="5" value="90" style="width:80px;" oninput="updateTimerHint('dm-set-timer','dm-set-timer-hint')">
             <span style="font-size:11px;color:var(--muted);">sec</span>
             <span class="dm-hint" id="dm-set-timer-hint">= 1 min 30 sec</span>
           </div>
