@@ -84,11 +84,11 @@ img{display:block;max-width:100%;}
 /* Navbar */
 .navbar{background:rgba(10,12,16,0.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:2px solid var(--gold);padding:0 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:200;min-height:var(--navbar-h);flex-wrap:wrap;transition:box-shadow var(--t);}
 .navbar.scrolled{box-shadow:0 4px 24px rgba(0,0,0,0.5);}
-.navbar-logo{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;letter-spacing:2px;color:var(--gold);text-transform:uppercase;white-space:nowrap;text-shadow:0 0 24px var(--gold-glow);transition:text-shadow var(--t);flex-shrink:0;}
+.navbar-logo{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;letter-spacing:2px;color:#f0b429;text-transform:uppercase;white-space:nowrap;text-shadow:0 0 24px rgba(240,180,41,0.4);transition:text-shadow 0.3s;flex-shrink:0;}
 .navbar-logo:hover{text-shadow:0 0 36px rgba(240,180,41,0.6);}
 .navbar-info{font-size:13px;color:var(--muted);white-space:nowrap;flex-shrink:0;}
 .navbar-info strong{color:var(--text);}
-.navbar-team{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:var(--text);letter-spacing:0.5px;display:inline-block;min-width:60px;}
+.navbar-team{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:#e2e8f0;letter-spacing:0.5px;display:inline-block;min-width:60px;}
 .navbar-team:empty::before{content:'—';color:var(--muted);}
 .navbar-right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .purse-display{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--gold);background:rgba(240,180,41,0.1);border:1px solid var(--gold-dim);padding:4px 16px;border-radius:var(--radius);white-space:nowrap;transition:all var(--t);}
@@ -2180,3 +2180,7 @@ input[type="number"].dm-input { width: 90px; flex: none; }
   background: var(--border) !important;
   box-shadow: none !important;
 }
+/* Set auction expired — all bid inputs/buttons disabled */
+.set-expired .sc-bid-btn,
+.set-expired .sc-bid-input{opacity:0.4;cursor:not-allowed;pointer-events:none;}
+.set-expired .sc-bid-btn{background:#4a5568 !important;color:#a0aec0 !important;}

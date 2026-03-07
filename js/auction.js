@@ -275,13 +275,19 @@ async function init() {
   await syncServerClock();
   await Promise.all([fetchState(), loadSquad(), loadStats(), loadAllTeams()]);
   revealUI(); startPolling(); subscribeRealtime();
-  pingPresence(); setInterval(pingPresence, 55000);  // heartbeat every ~55s
+  // Presence: ping every 30s so other devices see you as active within 30s
+  async function pingAndRefresh() {
+    await pingPresence();
+    loadAllTeams(); // immediately refresh dots after pinging
+  }
+  pingAndRefresh();
+  setInterval(pingAndRefresh, 30000);
 
-  // Re-sync server clock every 5 minutes to handle long-running sessions
+  // Re-sync server clock every 5 minutes
   setInterval(syncServerClock, 5 * 60 * 1000);
 
-  // Refresh presence dots every 30s (they don't update otherwise)
-  setInterval(() => { loadAllTeams(); }, 30000);
+  // Refresh presence dots every 15s (independent of ping, catches other teams' pings)
+  setInterval(loadAllTeams, 15000);
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
@@ -340,7 +346,10 @@ function updatePurseDisplay() {
 }
 
 // ── Polling ───────────────────────────────────────────────────
-function startPolling() { stopPolling(); pollInterval = setInterval(fetchState, 2500); }
+function startPolling() {
+  stopPolling();
+  pollInterval = setInterval(fetchState, 2000); // poll every 2s (down from 2.5s)
+}
 function stopPolling()  { clearInterval(pollInterval); pollInterval = null; }
 
 // ── Core state fetch ──────────────────────────────────────────
@@ -381,7 +390,22 @@ async function fetchState() {
     }
 
     const hash = stateHash(state);
-    if (hash === _lastStateHash) return;
+
+    // Even on same hash: if live with player but card is hidden, force re-render
+    if (hash === _lastStateHash) {
+      if ((state.status === 'live' || state.status === 'paused') && state.current_player) {
+        const card = el('player-card');
+        if (card && card.style.display === 'none') {
+          console.warn('[sync] player-card hidden during live — clearing hash to force re-render');
+          _lastStateHash = ''; _lastAppliedStatus = '';
+        } else {
+          return; // truly nothing changed
+        }
+      } else {
+        return;
+      }
+    }
+
     _lastStateHash = hash;
     currentState = state;
     // Watchdog: clear stale lock if previous render hung for >8s
@@ -482,11 +506,13 @@ async function applyState(state) {
     const noMsg = el('no-auction-msg');
     if (noMsg) {
       if (state.last_player_result === 'set_done')
-        noMsg.innerHTML = '<strong>Set Complete</strong> — ' + _esc(state.last_sold_to_team||'');
-      else if (state.last_player_result === 'sold' && state.last_player)
+        noMsg.innerHTML = '<strong>Set Auction Complete</strong>' + (state.last_set_name ? ' — ' + _esc(state.last_set_name) : '');
+      else if (state.last_player_result === 'sold' && state.last_player?.name)
         noMsg.innerHTML = '<strong>' + _esc(state.last_player.name) + '</strong> sold to <strong>' + _esc(state.last_sold_to_team||'') + '</strong> for <strong>' + fmt(state.last_sold_price) + '</strong>';
-      else if (state.last_player_result === 'unsold' && state.last_player)
+      else if (state.last_player_result === 'unsold' && state.last_player?.name)
         noMsg.innerHTML = '<strong>' + _esc(state.last_player.name) + '</strong> went <strong>unsold</strong>';
+      else if (state.last_player_result === 'cancelled')
+        noMsg.textContent = 'Player returned to pool — waiting for next auction…';
       else if (state.status === 'paused')
         noMsg.textContent = 'Auction is paused';
       else
@@ -622,10 +648,19 @@ async function renderSetHighlights(state, cont) {
 
 function renderLastResult(state) {
   const cont = el('last-result-container'); if (!cont) return;
+  // Never show "last result" banner while a live auction is in progress — it's distracting
+  // and can show stale/corrupt data (e.g. null player from a previous mark-unsold).
+  if (state.status === 'live' || state.status === 'set_live' || state.rtm_pending) {
+    cont.innerHTML = ''; _lastResultHash = ''; return;
+  }
   const lrHash = (state.last_player_result||'')+'|'+(state.last_player?.id||'')+'|'+(state.last_sold_to_team||'')+'|'+(state.last_sold_price||'')+'|'+(state.last_set_name||'');
   if (lrHash === _lastResultHash) return;
   _lastResultHash = lrHash;
   if (!state.last_player_result) { cont.innerHTML = ''; return; }
+  // Never show a banner when player data is missing — would show "Unknown · Unsold UNSOLD"
+  if ((state.last_player_result === 'unsold' || state.last_player_result === 'sold') && !state.last_player) {
+    cont.innerHTML = ''; return;
+  }
 
   if (state.last_player_result === 'set_done') {
     renderSetHighlights(state, cont); return;
@@ -1145,8 +1180,10 @@ function patchSlotCard(slot) {
         // User is typing — just update the minimum, don't rebuild
         existing.min = next.toFixed(2);
         if (parseFloat(existing.value) < next) existing.value = next.toFixed(2);
+        if (_setExpired) { existing.disabled = true; }
       } else {
-        sa.innerHTML = `<div class="sc-bid-action"><input type="number" class="form-input sc-bid-input" id="sbid-${slot.id}" value="${next.toFixed(2)}" min="${next.toFixed(2)}" step="0.25" inputmode="decimal"><button class="btn btn-gold btn-sm sc-bid-btn" onclick="placeSetBid('${slot.id}')">Bid</button></div>`;
+        const dis = _setExpired ? 'disabled' : '';
+        sa.innerHTML = `<div class="sc-bid-action"><input type="number" class="form-input sc-bid-input" id="sbid-${slot.id}" value="${next.toFixed(2)}" min="${next.toFixed(2)}" step="0.25" inputmode="decimal" ${dis}><button class="btn btn-gold btn-sm sc-bid-btn" onclick="placeSetBid('${slot.id}')" ${dis}>${_setExpired ? 'Closed' : 'Bid'}</button></div>`;
       }
     }
   }
@@ -1361,32 +1398,64 @@ function computeBidBlock(squad, player, committedSlots) {
 }
 
 async function pingPresence() {
-  try { await sb.rpc('ping_presence'); } catch(_) {}
+  try {
+    await sb.rpc('ping_presence');
+    // Update local copy so this team shows 'Active now' to itself immediately
+    if (myTeam) myTeam.last_seen = new Date(serverNow()).toISOString();
+  } catch(_) {}
 }
 
 // ── Timers ────────────────────────────────────────────────────
 async function syncServerClock() {
-  // Real clock sync: call get_server_time RPC, measure round-trip, compute offset.
-  // offset = (serverTimeMs) - (localTimeAtMidpoint)
-  // localTimeAtMidpoint = t0 + rtt/2
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
+  // Tier 1: use HTTP Date header from a tiny REST fetch — no RPC needed, always works.
+  // The Date header is the server's UTC time at response send time.
+  // offset = serverTime - localMidpoint; localMidpoint = t0 + rtt/2
+  try {
+    const url = sb.supabaseUrl + '/rest/v1/auction_state?id=eq.1&select=id';
+    const key  = sb.supabaseKey;
+    const { data: { session } } = await sb.auth.getSession();
+    const token = session?.access_token || '';
+    for (let i = 0; i < 3; i++) {
+      const t0 = Date.now();
+      const resp = await fetch(url, {
+        headers: { 'apikey': key, 'Authorization': 'Bearer ' + token }
+      });
+      const t1 = Date.now();
+      const rtt = t1 - t0;
+      if (rtt > 3000) continue;
+      const dateHdr = resp.headers.get('date');
+      if (!dateHdr) break; // header not present — try Tier 2
+      const serverMs = new Date(dateHdr).getTime();
+      if (isNaN(serverMs)) break;
+      _serverClockOffset = serverMs - (t0 + rtt / 2);
+      if (Math.abs(_serverClockOffset) > 300000) { _serverClockOffset = 0; break; }
+      console.log('[clock:hdr] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      _timerEndMs = 0; _setTimerEndMs = 0; // force timer recalculation with corrected clock
+      return;
+    }
+  } catch(_) {}
+
+  // Tier 2: get_server_time RPC (requires SQL deployment)
+  try {
+    for (let i = 0; i < 2; i++) {
       const t0 = Date.now();
       const { data, error } = await sb.rpc('get_server_time');
       const t1 = Date.now();
       if (error || !data?.server_time) continue;
-      const rtt        = t1 - t0;
-      if (rtt > 3000) continue; // discard if network was too slow (stale)
-      const serverMs   = new Date(data.server_time).getTime();
-      const localMid   = t0 + rtt / 2;
-      _serverClockOffset = serverMs - localMid;
-      // Sanity: clamp offset to ±5 minutes (anything larger = bad data)
-      if (Math.abs(_serverClockOffset) > 300000) _serverClockOffset = 0;
-      console.log('[clock] offset=', _serverClockOffset.toFixed(0), 'ms  rtt=', rtt, 'ms');
-      return; // success
-    } catch(_) {}
-  }
-  _serverClockOffset = 0; // fallback
+      const rtt = t1 - t0;
+      if (rtt > 3000) continue;
+      const serverMs = new Date(data.server_time).getTime();
+      _serverClockOffset = serverMs - (t0 + rtt / 2);
+      if (Math.abs(_serverClockOffset) > 300000) { _serverClockOffset = 0; continue; }
+      console.log('[clock:rpc] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      _timerEndMs = 0; _setTimerEndMs = 0; // force timer recalculation with corrected clock
+      return;
+    }
+  } catch(_) {}
+
+  // Tier 3: no sync possible — use 0 offset (local time)
+  _serverClockOffset = 0;
+  console.warn('[clock] sync failed — using local time. Timers may diverge across devices.');
 }
 
 function serverNow() { return Date.now() + _serverClockOffset; }
@@ -1454,8 +1523,10 @@ function _startDayCountdown(dayEndIso) {
 function stopTimer()    { clearInterval(timerInterval);    timerInterval    = null; }
 
 let _setTimerEndMs = 0, _setTimerTotalSec = 60;
+let _setExpired = false;  // true when set auction timer has expired
 function startSetTimer(endMs) {
   stopSetTimer(); if (!endMs) return;
+  _setExpired = false; // reset on new set
   if (Math.abs(endMs - _setTimerEndMs) > 2000) {
     _setTimerEndMs    = endMs;
     const rawSec      = Math.ceil((endMs - serverNow()) / 1000);
@@ -1476,8 +1547,11 @@ function startSetTimer(endMs) {
     }
     // Disable all set bid buttons when timer expires
     if (expired) {
+      _setExpired = true;
       document.querySelectorAll('.sc-bid-btn').forEach(b => { b.disabled = true; });
       document.querySelectorAll('.sc-bid-input').forEach(i => { i.disabled = true; });
+      const grid = el('set-slots-grid');
+      if (grid) grid.classList.add('set-expired');
     }
   }
   tick(); setTimerInterval = setInterval(tick, 500);

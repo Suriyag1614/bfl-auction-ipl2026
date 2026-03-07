@@ -270,8 +270,35 @@ async function setAuctionDay(day) {
 let _serverClockOffset = 0;
 function serverNow() { return Date.now() + _serverClockOffset; }
 async function syncServerClock() {
-  for (let i = 0; i < 3; i++) {
-    try {
+  // Tier 1: HTTP Date header (no RPC needed)
+  try {
+    const url = sb.supabaseUrl + '/rest/v1/auction_state?id=eq.1&select=id';
+    const key  = sb.supabaseKey;
+    const { data: { session } } = await sb.auth.getSession();
+    const token = session?.access_token || '';
+    for (let i = 0; i < 3; i++) {
+      const t0 = Date.now();
+      const resp = await fetch(url, {
+        headers: { 'apikey': key, 'Authorization': 'Bearer ' + token }
+      });
+      const t1 = Date.now();
+      const rtt = t1 - t0;
+      if (rtt > 3000) continue;
+      const dateHdr = resp.headers.get('date');
+      if (!dateHdr) break;
+      const serverMs = new Date(dateHdr).getTime();
+      if (isNaN(serverMs)) break;
+      _serverClockOffset = serverMs - (t0 + rtt / 2);
+      if (Math.abs(_serverClockOffset) > 300000) { _serverClockOffset = 0; break; }
+      console.log('[admin clock:hdr] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      if (typeof _timerEndMs !== 'undefined') _timerEndMs = 0; // recalc timers
+      return;
+    }
+  } catch(_) {}
+
+  // Tier 2: get_server_time RPC
+  try {
+    for (let i = 0; i < 2; i++) {
       const t0 = Date.now();
       const { data, error } = await sb.rpc('get_server_time');
       const t1 = Date.now();
@@ -280,12 +307,15 @@ async function syncServerClock() {
       if (rtt > 3000) continue;
       const serverMs = new Date(data.server_time).getTime();
       _serverClockOffset = serverMs - (t0 + rtt / 2);
-      if (Math.abs(_serverClockOffset) > 300000) _serverClockOffset = 0;
-      console.log('[admin clock] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      if (Math.abs(_serverClockOffset) > 300000) { _serverClockOffset = 0; continue; }
+      console.log('[admin clock:rpc] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      if (typeof _timerEndMs !== 'undefined') _timerEndMs = 0;
       return;
-    } catch(_) {}
-  }
+    }
+  } catch(_) {}
+
   _serverClockOffset = 0;
+  console.warn('[admin clock] sync failed — using local time.');
 }
 
 async function init() {
@@ -625,17 +655,8 @@ async function forceSell() {
   clearError(); clearAutoSell();
   const btn = el('force-sell-btn');
   if (btn) { if (btn._inFlight) return; btn._inFlight = true; btn.disabled = true; btn.textContent = '…'; }
-  // Refresh state first — admin UI may be stale (bid could have been undone since last poll)
-  await loadAuctionState();
-  const liveState = currentState;
-  if (!liveState || liveState.status !== 'live') {
-    if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = 'Force Sell'; }
-    return showError('Auction is not live — state has changed. Page refreshed.');
-  }
-  if (!liveState.current_highest_team_id || !(liveState.current_highest_bid > 0)) {
-    if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = 'Force Sell'; }
-    return showError('No bids in DB. The bid may have been undone. Use Mark Unsold if no bids.');
-  }
+  // The server reads fresh state from DB and validates everything — just call it directly.
+  // Any validation error (no bid, not live, squad full, RTM) will be returned by the server.
   const { data, error } = await sb.rpc('force_sell');
   if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = 'Force Sell'; }
   if (error) return showError(error.message);
