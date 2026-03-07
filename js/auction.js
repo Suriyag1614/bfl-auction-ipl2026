@@ -18,6 +18,7 @@ let currentState     = null;
 let _lastStateHash   = '';
 let _lastSlotsHash   = '';
 let _isRendering     = false;
+let _renderingStart  = 0; // watchdog timestamp
 let _lastAppliedStatus = '';
 let _squadLoading    = false;
 let _teamsCache      = [];
@@ -29,6 +30,7 @@ let _prevPurse       = null;  // for purse delta display
 let _reconnectTimer  = null;
 let _reconnectCount  = 0;
 let _bidTs           = 0;
+let _serverClockOffset = 0; // ms — set by syncServerClock on init
 
 const SIL = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23111520' rx='40'/%3E%3Ccircle cx='40' cy='28' r='14' fill='%2364748b'/%3E%3Cellipse cx='40' cy='70' rx='22' ry='18' fill='%2364748b'/%3E%3C/svg%3E";
 window._SIL = SIL;
@@ -274,15 +276,35 @@ async function init() {
   await Promise.all([fetchState(), loadSquad(), loadStats(), loadAllTeams()]);
   revealUI(); startPolling(); subscribeRealtime();
   pingPresence(); setInterval(pingPresence, 55000);  // heartbeat every ~55s
+
+  // Re-sync server clock every 5 minutes to handle long-running sessions
+  setInterval(syncServerClock, 5 * 60 * 1000);
+
+  // Refresh presence dots every 30s (they don't update otherwise)
+  setInterval(() => { loadAllTeams(); }, 30000);
+
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { fetchState(); loadAllTeams(); pingPresence(); }
+    if (!document.hidden) {
+      // Force full refresh on tab focus — clear hashes so state is never skipped
+      _lastStateHash = ''; _lastSlotsHash = ''; _lastAppliedStatus = '';
+      fetchState(); loadAllTeams(); pingPresence();
+      syncServerClock(); // re-sync clock after device sleep/wake
+    }
   });
 }
 
 function revealUI() {
   hide('auction-skeleton'); hide('stats-skeleton'); hide('squad-skeleton');
   show('stats-real'); show('squad-table-wrap'); show('role-pool-wrap');
-  const tn = el('team-name'); if (tn) tn.textContent = myTeam.team_name;
+  // Set team name in navbar — clear skeleton span first, then set plain text
+  const tn = el('team-name');
+  if (tn) {
+    tn.innerHTML = ''; // remove skeleton child spans
+    tn.textContent = myTeam?.team_name || '—';
+  }
+  // Also set the BFL logo text (defensive — it's static HTML but ensure it's visible)
+  const logo = document.querySelector('.navbar-logo');
+  if (logo && !logo.textContent.trim()) logo.textContent = 'BFL';
   updatePurseDisplay();
   if (myTeam.is_advantage_holder) show('advantage-badge');
   updateRTMBadge();
@@ -362,7 +384,12 @@ async function fetchState() {
     if (hash === _lastStateHash) return;
     _lastStateHash = hash;
     currentState = state;
-    _isRendering = true;
+    // Watchdog: clear stale lock if previous render hung for >8s
+    if (_isRendering && Date.now() - _renderingStart > 8000) {
+      console.warn('[fetchState] clearing stale _isRendering lock');
+      _isRendering = false;
+    }
+    _isRendering = true; _renderingStart = Date.now();
     try { await applyState(state); }
     finally { _isRendering = false; }
   } catch(e) { console.warn('[fetchState]', e.message); }
@@ -392,15 +419,17 @@ function updateLiveBidStats(state) {
   }
   if (isLeading) _wasLeading = true;
 
-  // Bid input floor
+  // Bid input: always show base_price when no bids; bump up if outbid
   const inp = el('bid-input');
   if (inp && !inp.matches(':focus')) {
-    const next = Math.max(
-      Number(p.base_price||0),
-      hasBid ? Number(state.current_highest_bid)+0.25 : Number(p.base_price||0)
-    );
-    if (parseFloat(inp.value) < next) inp.value = next.toFixed(2);
-    inp.min = next.toFixed(2);
+    const next = hasBid ? Number(state.current_highest_bid)+0.25 : Number(p.base_price||0);
+    inp.min  = next.toFixed(2);
+    inp.step = '0.25';
+    const curVal = parseFloat(inp.value);
+    // Reset to base when no bids (e.g. after undo) or when value is stale/empty/below min
+    if (!hasBid || isNaN(curVal) || curVal < next) {
+      inp.value = next.toFixed(2);
+    }
   }
 }
 // ── Apply state ───────────────────────────────────────────────
@@ -790,14 +819,17 @@ async function renderLivePlayer(state, paused) {
   const next = hasBid ? Number(state.current_highest_bid)+0.25 : Number(p.base_price);
   const bidInput = el('bid-input');
   if (bidInput) {
-    // Always refresh min — if someone outbid you, stale value would be rejected by server
     const newMin = next.toFixed(2);
-    bidInput.min = newMin;
-    // Only auto-update value if user isn't actively typing and current value is now too low
-    if (!bidInput.matches(':focus') && parseFloat(bidInput.value) < next) {
-      bidInput.value = newMin;
-    }
+    bidInput.min  = newMin;
     bidInput.step = '0.25';
+    if (!bidInput.matches(':focus')) {
+      // Always set to base_price when there are no bids (covers new player + after undo)
+      // Always set on new player (first render) — parseFloat('') = NaN which breaks < check
+      const curVal = parseFloat(bidInput.value);
+      if (!hasBid || _samePlayer === false || isNaN(curVal) || curVal < next) {
+        bidInput.value = newMin;
+      }
+    }
   }
 
   // Refresh squad data when a new player comes on (player changed)
@@ -1242,7 +1274,7 @@ function renderAllTeams() {
 // ── Presence helpers ─────────────────────────────────────────
 function presenceLabel(lastSeenIso) {
   if (!lastSeenIso) return { text: 'Inactive', cls: 'presence-inactive' };
-  const diffMs  = Date.now() - new Date(lastSeenIso).getTime();
+  const diffMs  = serverNow() - new Date(lastSeenIso).getTime();
   const diffMin = Math.floor(diffMs / 60000);
   if (diffMin < 2)  return { text: 'Active now',           cls: 'presence-active' };
   if (diffMin < 10) return { text: diffMin + 'm ago',      cls: 'presence-recent' };
@@ -1333,24 +1365,28 @@ async function pingPresence() {
 }
 
 // ── Timers ────────────────────────────────────────────────────
-// Server-clock offset: positive means server is ahead of browser
-let _serverClockOffset = 0;  // ms
 async function syncServerClock() {
-  try {
-    const t0 = Date.now();
-    const { data } = await sb.from('auction_state').select('last_action_at').eq('id',1).maybeSingle();
-    // Use round-trip time to estimate offset — rough but better than nothing
-    // We just fetch Supabase's current time via a known timestamp field
-    // For precise sync use Date header from response, but we work with what we have
-    const rtt = Date.now() - t0;
-    // If last_action_at is very recent, we can calibrate
-    if (data?.last_action_at) {
-      const serverMs = new Date(data.last_action_at).getTime();
-      // Heuristic: if server time seems ahead, it's clock drift
-      // We don't use this directly but reset drift to 0 to avoid overcomplication
-    }
-    _serverClockOffset = 0; // Supabase is authoritative UTC; just keep 0
-  } catch(_) {}
+  // Real clock sync: call get_server_time RPC, measure round-trip, compute offset.
+  // offset = (serverTimeMs) - (localTimeAtMidpoint)
+  // localTimeAtMidpoint = t0 + rtt/2
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const t0 = Date.now();
+      const { data, error } = await sb.rpc('get_server_time');
+      const t1 = Date.now();
+      if (error || !data?.server_time) continue;
+      const rtt        = t1 - t0;
+      if (rtt > 3000) continue; // discard if network was too slow (stale)
+      const serverMs   = new Date(data.server_time).getTime();
+      const localMid   = t0 + rtt / 2;
+      _serverClockOffset = serverMs - localMid;
+      // Sanity: clamp offset to ±5 minutes (anything larger = bad data)
+      if (Math.abs(_serverClockOffset) > 300000) _serverClockOffset = 0;
+      console.log('[clock] offset=', _serverClockOffset.toFixed(0), 'ms  rtt=', rtt, 'ms');
+      return; // success
+    } catch(_) {}
+  }
+  _serverClockOffset = 0; // fallback
 }
 
 function serverNow() { return Date.now() + _serverClockOffset; }
@@ -1427,15 +1463,21 @@ function startSetTimer(endMs) {
   }
   const totalSetSec = _setTimerTotalSec;
   function tick() {
-    const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
+    const rem     = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
+    const expired = rem <= 0;
     const t   = el('set-timer'); if (!t) { stopSetTimer(); return; }
-    t.textContent = rem + 's';
-    t.className   = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
+    t.textContent = expired ? 'Ended' : rem + 's';
+    t.className   = 'timer' + (expired ? ' timer-ended' : rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
     const pct    = Math.max(0, Math.min(100, (rem / totalSetSec) * 100));
     const setBar = el('set-timer-bar');
     if (setBar) {
-      setBar.style.width = pct + '%';
-      setBar.className = 'timer-progress-bar ' + (rem <= 5 ? 'tp-red' : rem <= 10 ? 'tp-amber' : 'tp-green');
+      setBar.style.width = expired ? '0%' : pct + '%';
+      setBar.className = 'timer-progress-bar ' + (expired ? 'tp-ended' : rem <= 5 ? 'tp-red' : rem <= 10 ? 'tp-amber' : 'tp-green');
+    }
+    // Disable all set bid buttons when timer expires
+    if (expired) {
+      document.querySelectorAll('.sc-bid-btn').forEach(b => { b.disabled = true; });
+      document.querySelectorAll('.sc-bid-input').forEach(i => { i.disabled = true; });
     }
   }
   tick(); setTimerInterval = setInterval(tick, 500);
@@ -1445,7 +1487,7 @@ function stopSetTimer() { clearInterval(setTimerInterval); setTimerInterval = nu
 function startRTMTimer(deadlineMs) {
   stopRTMTimer();
   function tick() {
-    const rem = Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000));
+    const rem = Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000));
     const t = el('rtm-countdown'); if (!t) { stopRTMTimer(); return; }
     t.textContent = rem + 's';
     t.className = 'timer ' + (rem <= 10 ? 'timer-critical' : rem <= 20 ? 'timer-warning' : '');
@@ -1610,6 +1652,16 @@ async function placeSetBid(slotId) {
           : msg.includes('Uncapped') ? 'Uncapped Required' : 'Role Constraint';
         toast(ttl, msg, 'error'); return;
       }
+    }
+  }
+
+  // ── Set timer check (same enforcement as single-player bid) ──
+  if (_setTimerEndMs > 0) {
+    const setRemMs = _setTimerEndMs - serverNow();
+    if (setRemMs <= 0) {
+      if (errEl) errEl.textContent = 'Bidding closed — set timer has ended';
+      toast('Bidding Closed', 'The set timer has expired', 'error');
+      return;
     }
   }
 
@@ -2066,6 +2118,9 @@ function subscribeRealtime() {
     .on('system', {}, p => {
       if (p.status === 'SUBSCRIBED') {
         setConnState('connected');
+        // Force full state reload after reconnect — stale hash could prevent re-render
+        _lastStateHash = ''; _lastSlotsHash = ''; _lastAppliedStatus = '';
+        fetchState();
       } else if (['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(p.status)) {
         _reconnectCount++;
         setConnState(_reconnectCount >= 3 ? 'error' : 'reconnecting');

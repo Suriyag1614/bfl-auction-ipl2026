@@ -267,11 +267,35 @@ async function setAuctionDay(day) {
   const { error } = await sb.from('auction_state').update({ auction_day: day }).eq('id', 1);
   if (error) { toast('Error Occurred', error.message, 'error'); return; }
 }
+let _serverClockOffset = 0;
+function serverNow() { return Date.now() + _serverClockOffset; }
+async function syncServerClock() {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const t0 = Date.now();
+      const { data, error } = await sb.rpc('get_server_time');
+      const t1 = Date.now();
+      if (error || !data?.server_time) continue;
+      const rtt = t1 - t0;
+      if (rtt > 3000) continue;
+      const serverMs = new Date(data.server_time).getTime();
+      _serverClockOffset = serverMs - (t0 + rtt / 2);
+      if (Math.abs(_serverClockOffset) > 300000) _serverClockOffset = 0;
+      console.log('[admin clock] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      return;
+    } catch(_) {}
+  }
+  _serverClockOffset = 0;
+}
+
 async function init() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { location.href = 'index.html'; return; }
   if (session.user.app_metadata?.role !== 'admin') { location.href = 'auction.html'; return; }
   setConn('reconnecting');
+  await syncServerClock();
+  // Re-sync clock every 5 minutes
+  setInterval(syncServerClock, 5 * 60 * 1000);
   await loadTeams();
   await loadPlayers();
   await loadAuctionState();
@@ -283,10 +307,17 @@ async function init() {
   // Primary sync: poll every 2s (realtime is just a speed-boost on top)
   startAdminPolling();
 
-  // Re-sync on tab focus
+  // Re-sync on tab focus — force full reload to catch any missed events
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) pollAdminState();
+    if (!document.hidden) {
+      _lastAdminStateHash = '';
+      pollAdminState();
+      loadTeams(); // refresh presence dots
+    }
   });
+
+  // Refresh presence dots every 60s (status labels are time-based, need re-render)
+  setInterval(() => { loadTeams(); }, 60000);
 }
 
 function startAdminPolling() {
@@ -593,9 +624,20 @@ async function resumeAuction() {
 async function forceSell() {
   clearError(); clearAutoSell();
   const btn = el('force-sell-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  if (btn) { if (btn._inFlight) return; btn._inFlight = true; btn.disabled = true; btn.textContent = '…'; }
+  // Refresh state first — admin UI may be stale (bid could have been undone since last poll)
+  await loadAuctionState();
+  const liveState = currentState;
+  if (!liveState || liveState.status !== 'live') {
+    if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = 'Force Sell'; }
+    return showError('Auction is not live — state has changed. Page refreshed.');
+  }
+  if (!liveState.current_highest_team_id || !(liveState.current_highest_bid > 0)) {
+    if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = 'Force Sell'; }
+    return showError('No bids in DB. The bid may have been undone. Use Mark Unsold if no bids.');
+  }
   const { data, error } = await sb.rpc('force_sell');
-  if (btn) { btn.disabled = false; btn.textContent = 'Force Sell'; }
+  if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = 'Force Sell'; }
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
   const result = data.result || data.message;
@@ -1059,7 +1101,7 @@ function renderRTMAdminBlock(state) {
   }
   if (state.rtm_pending) {
     const deadlineMs = state.rtm_deadline ? new Date(state.rtm_deadline).getTime() : null;
-    const remInit = deadlineMs ? Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000)) : null;
+    const remInit = deadlineMs ? Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000)) : null;
     block.innerHTML = `
       <div class="rtm-admin-banner" style="position:relative;">
         ${remInit !== null ? `<div id="rtm-admin-countdown" style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--gold);position:absolute;top:10px;right:12px;">${remInit}s</div>` : ''}
@@ -1083,7 +1125,7 @@ function startAdminRTMCountdown(endMs) {
   adminRTMInterval = setInterval(() => {
     const t = el('rtm-admin-countdown');
     if (!t) { clearInterval(adminRTMInterval); adminRTMInterval = null; return; }
-    const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+    const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
     t.textContent = rem + 's';
     t.style.color = rem <= 10 ? 'var(--red)' : 'var(--gold)';
     if (rem <= 0) { clearInterval(adminRTMInterval); adminRTMInterval = null; }
@@ -1230,7 +1272,7 @@ function adminSortTeams(key) {
 // ── Presence helpers ─────────────────────────────────────────
 function presenceLabel(lastSeenIso) {
   if (!lastSeenIso) return { text: 'Inactive', cls: 'presence-inactive' };
-  const diffMs  = Date.now() - new Date(lastSeenIso).getTime();
+  const diffMs  = serverNow() - new Date(lastSeenIso).getTime();
   const diffMin = Math.floor(diffMs / 60000);
   if (diffMin < 2)  return { text: 'Active now',      cls: 'presence-active' };
   if (diffMin < 10) return { text: diffMin + 'm ago',  cls: 'presence-recent' };
@@ -1974,8 +2016,14 @@ function subscribeRealtime() {
       }, 350);
     })
     .on('system', {}, p => {
-      if (p.status === 'SUBSCRIBED') setConn('connected');
-      if (['CHANNEL_ERROR','TIMED_OUT'].includes(p.status)) {
+      if (p.status === 'SUBSCRIBED') {
+        setConn('connected');
+        // Force reload after reconnect — missed events may have changed state
+        _lastAdminStateHash = '';
+        pollAdminState();
+        loadTeams();
+      }
+      if (['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(p.status)) {
         setConn('reconnecting'); setTimeout(subscribeRealtime, 5000);
       }
     })
@@ -2211,7 +2259,7 @@ function renderLiveSetPanel() {
   adminSetTimerInterval = setInterval(() => {
     const t = document.getElementById('admin-set-timer');
     if (!t) { clearInterval(adminSetTimerInterval); return; }
-    const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+    const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
     t.textContent = rem + 's';
     t.className = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
     if (rem <= 0) clearInterval(adminSetTimerInterval);
