@@ -1715,7 +1715,7 @@ async function placeBid() {
   } catch(_) { /* fall back to cached */ }
 
   if (p) {
-    const { blocked, msg } = computeBidBlock(_lastSquadData, p, []);
+    const { blocked, msg } = computeBidBlock(_lastSquadData, p, [], myTeam?.is_advantage_holder);
     if (blocked) {
       if (errEl) errEl.textContent = msg;
       // Categorise toast type by message prefix
@@ -1866,7 +1866,17 @@ async function placeSetBid(slotId) {
 }
 
 async function undoSetBid(slotId) {
+  // Two-step confirm: first tap arms button, second tap fires — prevents mis-taps
   const btn = document.querySelector(`#set-card-${slotId} .sc-undo-btn`);
+  if (!btn) return;
+  if (!btn._armed) {
+    btn._armed = true;
+    btn.textContent = '?';
+    btn.style.color = 'var(--gold)';
+    setTimeout(() => { if (btn._armed) { btn._armed = false; btn.textContent = '↩'; btn.style.color = ''; } }, 2000);
+    return;
+  }
+  btn._armed = false; btn.style.color = '';
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   const { data, error } = await sb.rpc('undo_set_bid', { p_slot_id: slotId });
   if (btn) { btn.disabled = false; btn.textContent = '↩'; }

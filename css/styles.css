@@ -14,7 +14,7 @@
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{scroll-behavior:smooth;}
-body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font-size:15px;line-height:1.6;min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font-size:15px;line-height:1.6;min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden;padding-bottom:env(safe-area-inset-bottom,0px);}
 img{display:block;max-width:100%;}
 ::selection{background:var(--gold-glow);}
 
@@ -145,7 +145,7 @@ select.form-input{cursor:pointer;}
 .btn-start:hover:not(:disabled){box-shadow:0 4px 20px rgba(240,180,41,0.4);}
 
 /* ── Cancel Set button ───────────────────────────────────────── */
-.btn-cancel-set{display:inline-flex;align-items:center;gap:5px;padding:5px 14px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;background:rgba(229,62,62,0.1);color:#fc8181;border:1px solid rgba(229,62,62,0.35);border-radius:var(--radius);cursor:pointer;transition:all var(--t);white-space:nowrap;}
+.btn-cancel-set{display:inline-flex;align-items:center;gap:5px;padding:5px 14px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;background:rgba(229,62,62,0.1);color:#fc8181;border:1px solid rgba(229,62,62,0.35);border-radius:var(--radius);cursor:pointer;transition:all var(--t);white-space:nowrap;-webkit-tap-highlight-color:transparent;}
 .btn-cancel-set:hover{background:rgba(229,62,62,0.2);border-color:var(--red);color:#fff;transform:translateY(-1px);}
 
 /* Messages */

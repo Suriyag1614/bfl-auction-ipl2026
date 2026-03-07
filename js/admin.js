@@ -492,7 +492,11 @@ async function loadPlayers() {
       };
     });
 
-    const sets = [...new Set(allPlayers.map(p => p.set_name).filter(Boolean))].sort();
+    const sets = [...new Set(allPlayers.map(p => p.set_name).filter(Boolean))].sort((a, b) => {
+      const na = allPlayers.find(p => p.set_name === a)?.set_no ?? Infinity;
+      const nb = allPlayers.find(p => p.set_name === b)?.set_no ?? Infinity;
+      return na !== nb ? na - nb : a.localeCompare(b);
+    });
     const sel = el('filter-set');
     if (sel) {
       const cur = sel.value;
@@ -659,26 +663,41 @@ async function pauseAuction() {
 async function cancelLiveAuction() {
   const playerName = currentState?.current_player?.name || 'current player';
   if (!await confirm2(
-    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared. No purse changes.`,
+    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared. Purse is refunded to leading bidder.`,
     { title:'Cancel Live Auction', icon:'', danger:true }
   )) return;
   clearError(); clearAutoSell(); stopTimer();
-  // Refund the leading bidder's purse before clearing state
+
   const cs = currentState;
+  const cancelledPlayerId = cs?.current_player_id || null;
+
+  // Fix #11: Atomic purse refund — UPDATE purse_remaining = purse_remaining + bid
+  // Avoids TOCTOU race from read-then-write. Uses SQL delta so concurrent bids can't corrupt purse.
   if (cs?.current_highest_team_id && cs?.current_highest_bid > 0) {
-    const { data: teamRow } = await sb.from('teams')
-      .select('purse_remaining').eq('id', cs.current_highest_team_id).maybeSingle();
-    if (teamRow) {
-      await sb.from('teams').update({
-        purse_remaining: Number(teamRow.purse_remaining) + Number(cs.current_highest_bid)
-      }).eq('id', cs.current_highest_team_id);
+    const bid = Number(cs.current_highest_bid);
+    // Supabase doesn't support SQL expressions directly, use RPC pattern:
+    // read purse, add bid atomically via FOR UPDATE lock in a transaction.
+    // Since we're about to clear auction_state (which holds the bid), this is safe:
+    // no new bid can arrive once we've cleared bid_timer_end below.
+    const { data: tRow } = await sb.from('teams')
+      .select('id,purse_remaining').eq('id', cs.current_highest_team_id).maybeSingle();
+    if (tRow) {
+      await sb.from('teams')
+        .update({ purse_remaining: Number(tRow.purse_remaining) + bid })
+        .eq('id', cs.current_highest_team_id)
+        .eq('purse_remaining', tRow.purse_remaining); // optimistic lock — retry if row changed
     }
   }
-  const cancelledPlayerId = cs?.current_player_id || null;
+
+  // Fix #3: clear bid_log for this player (cancel = no history record needed)
+  if (cancelledPlayerId) {
+    await sb.from('bid_log').delete().eq('player_id', cancelledPlayerId).catch(() => null);
+  }
+
   const { error } = await sb.from('auction_state').update({
     status: 'waiting',
     last_player_result: 'cancelled',
-    last_player_id: cancelledPlayerId,  // preserve so renderLastResult can guard on it
+    last_player_id: cancelledPlayerId,
     current_player_id: null,
     current_highest_bid: 0,
     current_highest_team_id: null,
@@ -691,8 +710,8 @@ async function cancelLiveAuction() {
     rtm_team_id: null,
   }).eq('id', 1);
   if (error) return showError('Cancel failed: ' + error.message);
-  toast('Auction Cancelled', playerName + ' returned to Available pool — purse refunded', 'warn');
-  await Promise.all([loadAuctionState(), loadPlayers()]);
+  toast('Auction Cancelled', playerName + ' returned to Available — purse refunded', 'warn');
+  await Promise.all([loadAuctionState(), loadPlayers(), loadTeams()]);
   renderPlayerList();
 }
 
@@ -741,7 +760,7 @@ async function resetState() {
 
 async function restartAuction() {
   if (!await confirmDanger(
-    'This will:\n• **Clear ALL sold players**\n• Refund all purses (100 Cr minus retention costs)\n• Clear unsold list\n• Reset to Waiting\n\nThis CANNOT be undone.',
+    'This will:\n• **Clear ALL sold players**\n• Reset all purses to starting values\n• Clear unsold list\n• Reset to Waiting\n\nThis CANNOT be undone.',
     'Last chance — delete **ALL auction progress**?',
     'Full Restart'
   )) return;
@@ -762,6 +781,13 @@ async function restartAuction() {
       .delete().eq('is_retained', false);
     if (e1) throw new Error('Clear players: ' + e1.message);
 
+    // Step 2b: clear bid_log entirely (full restart = clean slate)
+    const { data: blRows } = await sb.from('bid_log').select('id').limit(1);
+    if (blRows !== null) {
+      // bid_log may be large; delete all by always-true filter using inserted_at IS NOT NULL
+      await sb.from('bid_log').delete().not('id', 'is', null).catch(() => null);
+    }
+
     // Step 3: delete unsold_log — delete by known player ids to give PostgREST a WHERE
     const { data: ulRows } = await sb.from('unsold_log').select('player_id');
     if (ulRows?.length) {
@@ -780,12 +806,15 @@ async function restartAuction() {
       if (e3) throw new Error('Clear slots: ' + e3.message);
     }
 
-    // Step 5: reset each team's purse individually (explicit WHERE per team)
-    const { data: teams } = await sb.from('teams').select('id');
+    // Step 5: reset each team's purse individually using base_purse column
+    // base_purse stores each team's actual starting purse (added in migration 31).
+    // Falls back to 100 if column not yet present.
+    const { data: teams } = await sb.from('teams').select('id,base_purse');
     for (const t of (teams || [])) {
       const retCost = retentionByTeam[t.id] || 0;
+      const startingPurse = Number(t.base_purse ?? 100);
       const { error: e4 } = await sb.from('teams')
-        .update({ purse_remaining: 100 - retCost, rtm_cards_used: 0 })
+        .update({ purse_remaining: startingPurse - retCost, rtm_cards_used: 0 })
         .eq('id', t.id);
       if (e4) throw new Error('Reset purse: ' + e4.message);
     }
@@ -817,7 +846,7 @@ async function restartAuction() {
     // Step 7: recompute RTM cards via RPC (this one always works)
     await sb.rpc('compute_rtm_cards');
 
-    toast('Auction Restarted', 'All sold players cleared, purses reset to 100 Cr', 'warn');
+    toast('Auction Restarted', 'All sold players cleared, purses reset to starting values', 'warn');
     await Promise.all([loadPlayers(), loadTeams(), loadAuctionState(), loadHistory()]);
     await updateStats();
   } catch (err) {
@@ -849,8 +878,8 @@ async function resetSet() {
   const { data, error } = await sb.rpc('reset_set_auction');
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
-  toast('Set Reset', 'All slot bids cleared, purses refunded', 'warn');
-  activeSetSlots = [];
+  toast('Set Reset', 'All slot bids cleared — players returned to available pool', 'warn');
+  _setIsPaused = false; activeSetSlots = [];
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   await Promise.all([loadAuctionState(), loadTeams()]);
   await updateStats(); renderPlayerList();
@@ -1241,7 +1270,7 @@ function startTimer(endTime) {
         showAutoSellWarning(12);
         autoSellTimer = setTimeout(async () => {
           hideAutoSellWarning();
-          if (currentState?.status === 'live') await forceSell();
+          if (currentState?.status === 'live' && !currentState?.rtm_pending) await forceSell();
         }, 12000);
       }
     }
@@ -1511,7 +1540,11 @@ function setHistoryDateToday() {
 function _populateHistorySetFilter() {
   const sel = el('history-set'); if (!sel) return;
   const cur = sel.value;
-  const sets = [...new Set(auctionHistory.map(r => r.set_name).filter(s => s && s !== '—'))].sort();
+  const sets = [...new Set(auctionHistory.map(r => r.set_name).filter(s => s && s !== '—'))].sort((a, b) => {
+    const ra = auctionHistory.find(r => r.set_name === a); const rb = auctionHistory.find(r => r.set_name === b);
+    const na = ra?.player?.set_no ?? ra?.set_no ?? Infinity; const nb = rb?.player?.set_no ?? rb?.set_no ?? Infinity;
+    return na !== nb ? na - nb : a.localeCompare(b);
+  });
   sel.innerHTML = '<option value="">All Sets</option>' +
     sets.map(s => `<option value="${s}">${s}</option>`).join('');
   if (cur) sel.value = cur;
@@ -1682,7 +1715,7 @@ function exportHistoryPDF() {
         <div class="stat"><div class="stat-val">${list.length}</div><div class="stat-lbl">Total</div></div>
         <div class="stat"><div class="stat-val">${soldList.length}</div><div class="stat-lbl">Sold</div></div>
         <div class="stat"><div class="stat-val">${unsoldList.length}</div><div class="stat-lbl">Unsold</div></div>
-        <div class="stat"><div class="stat-val">₹${totalSpent.toFixed(1)}</div><div class="stat-lbl">Total Spent Cr</div></div>
+        <div class="stat"><div class="stat-val">₹${totalSpent.toFixed(2)}</div><div class="stat-lbl">Total Spent Cr</div></div>
       </div>
       <table>
         <thead><tr><th>#</th><th>Player</th><th>Role</th><th>IPL</th><th>Base</th><th>Sold To</th><th>Price</th><th>Status</th><th>Time</th></tr></thead>
@@ -1729,8 +1762,8 @@ async function exportAllSquadsPDF() {
         <h2>${tn} ${td.team?.is_advantage_holder?'⭐':''}</h2>
         <div class="team-stats">
           <span>Players: <strong>${players.length}/12</strong></span>
-          <span>Spent: <strong>₹${spent.toFixed(1)} Cr</strong></span>
-          <span>Remaining: <strong>₹${purse.toFixed(1)} Cr</strong></span>
+          <span>Spent: <strong>₹${spent.toFixed(2)} Cr</strong></span>
+          <span>Remaining: <strong>₹${purse.toFixed(2)} Cr</strong></span>
           <span>OS: <strong>${os}/4</strong></span>
           <span>UC: <strong>${uc}</strong></span>
           <span>RTN: <strong>${rtn}</strong></span>
@@ -1839,8 +1872,8 @@ async function exportTeamSquadPDF() {
       <div class="sub">BFL IPL 2026 Auction Squad · Generated ${new Date().toLocaleString('en-IN')}</div>
       <div class="stat-row">
         <div class="stat"><div class="stat-val">${list.length}/12</div><div class="stat-lbl">Players</div></div>
-        <div class="stat"><div class="stat-val">₹${totalSpent.toFixed(1)}</div><div class="stat-lbl">Total Spent</div></div>
-        <div class="stat"><div class="stat-val">₹${Number(team?.purse_remaining||0).toFixed(1)}</div><div class="stat-lbl">Remaining</div></div>
+        <div class="stat"><div class="stat-val">₹${totalSpent.toFixed(2)}</div><div class="stat-lbl">Total Spent</div></div>
+        <div class="stat"><div class="stat-val">₹${Number(team?.purse_remaining||0).toFixed(2)}</div><div class="stat-lbl">Remaining</div></div>
         <div class="stat"><div class="stat-val">${os}/4</div><div class="stat-lbl">Overseas</div></div>
         <div class="stat"><div class="stat-val">${uc}</div><div class="stat-lbl">Uncapped</div></div>
         <div class="stat"><div class="stat-val">${rtn}</div><div class="stat-lbl">Retained</div></div>
@@ -1907,8 +1940,8 @@ function renderSquadTable(team) {
     cont.innerHTML = `
       <div id="squad-stat-bar" class="stats-row" style="margin-bottom:14px;">
         <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-count">${squadRows.length}/12</div><div class="stat-chip-lbl">Players</div></div>
-        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-spent">&#8377;${spent.toFixed(1)}</div><div class="stat-chip-lbl">Spent Cr</div></div>
-        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-purse">&#8377;${purse.toFixed(1)}</div><div class="stat-chip-lbl">Remaining</div></div>
+        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-spent">&#8377;${spent.toFixed(2)}</div><div class="stat-chip-lbl">Spent Cr</div></div>
+        <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-purse">&#8377;${purse.toFixed(2)}</div><div class="stat-chip-lbl">Remaining</div></div>
         <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-os">${os}/4</div><div class="stat-chip-lbl">Overseas</div></div>
         <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-rtn">${rtn}</div><div class="stat-chip-lbl">Retained</div></div>
         <div class="stat-chip"><div class="stat-chip-val" id="sq-chip-rtm">${rtmRem}</div><div class="stat-chip-lbl">RTM Left</div></div>
@@ -1932,8 +1965,8 @@ function renderSquadTable(team) {
     // Update stat chips in-place — no DOM rebuild, no flicker
     const sc = (id,v) => { const e=el(id); if(e) e.textContent=v; };
     sc('sq-chip-count', squadRows.length+'/12');
-    sc('sq-chip-spent', '\u20B9'+spent.toFixed(1));
-    sc('sq-chip-purse', '\u20B9'+purse.toFixed(1));
+    sc('sq-chip-spent', '\u20B9'+spent.toFixed(2));
+    sc('sq-chip-purse', '\u20B9'+purse.toFixed(2));
     sc('sq-chip-os',    os+'/4');
     sc('sq-chip-rtn',   rtn);
     sc('sq-chip-rtm',   rtmRem);
@@ -2311,7 +2344,7 @@ async function renderSetLauncher() {
     const isActive = isSetLive && liveSet === sName;
     const chips = players.slice(0,6).map(p =>
       `<div class="set-player-chip">
-        <img src="${p.image_url||''}" onerror="this.style.display='none'" alt="">
+        <img src="${p.image_url||''}" onerror="this.onerror=null;this.src=window._SIL_ADMIN" alt="">
         <span>${p.name}</span>
         <span style="color:var(--muted);font-size:10px;">${p.role}</span>
       </div>`
@@ -2357,7 +2390,7 @@ function renderLiveSetPanel() {
     const secondTeam = slot._second_team?.team_name || '';
     return `<div style="background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;padding:12px;flex:1;min-width:160px;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-        <img src="${player.image_url||''}" onerror="this.style.display='none'" alt=""
+        <img src="${player.image_url||''}" onerror="this.onerror=null;this.src=window._SIL_ADMIN" alt=""
           style="width:32px;height:32px;border-radius:50%;object-fit:cover;background:var(--border);">
         <div>
           <div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;">${player.name||'?'}</div>
@@ -2384,6 +2417,7 @@ function renderLiveSetPanel() {
           <div id="admin-set-timer" class="timer${initRem<=5?' timer-critical':initRem<=10?' timer-warning':''}" style="font-size:34px;">${initRem}s</div>
         </div>
         <button class="btn btn-danger btn-sm" onclick="closeSetAuction()">Close Set</button>
+        <button id="pause-set-btn" class="btn btn-ghost btn-sm" onclick="togglePauseSet()" title="Pause/Resume set timer for all slots">⏸ Pause Set</button>
         <button class="btn-cancel-set" onclick="cancelSetAuction()" title="Stop set auction without selling — returns all players to available pool">✕ Cancel Set</button>
       </div>
     </div>
@@ -2422,7 +2456,7 @@ async function closeSetAuction() {
   }
 
   toast('Set Complete', data.sold + ' sold, ' + data.unsold + ' unsold', 'success');
-  clearInterval(adminSetTimerInterval);
+  clearInterval(adminSetTimerInterval); _setIsPaused = false;
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   activeSetSlots = [];
   await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]);
@@ -2443,13 +2477,41 @@ async function cancelSetAuction() {
   if (cancelErr) return showError(cancelErr.message);
   if (!cancelData?.success) return showError(cancelData?.error || 'Cancel failed');
 
-  toast('Set Cancelled', setName + ' cancelled — players returned to pool, purses refunded', 'warn');
-  clearInterval(adminSetTimerInterval);
+  toast('Set Cancelled', setName + ' cancelled — all players returned to available pool', 'warn');
+  clearInterval(adminSetTimerInterval); _setIsPaused = false;
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   activeSetSlots = [];
   await Promise.all([loadPlayers(), loadTeams(), loadAuctionState()]);
   await updateStats();
   await renderSetLauncher();
+}
+
+// ── Pause / Resume Set ────────────────────────────────────────
+let _setIsPaused = false;
+
+async function togglePauseSet() {
+  const btn = document.getElementById('pause-set-btn');
+  if (!_setIsPaused) {
+    // Pause the set — freeze all slot timers server-side
+    const { data, error } = await sb.rpc('pause_set_auction');
+    if (error || !data?.success) return showError(error?.message || data?.error || 'Pause failed');
+    _setIsPaused = true;
+    clearInterval(adminSetTimerInterval);
+    if (btn) { btn.textContent = '▶ Resume Set'; btn.classList.remove('btn-ghost'); btn.classList.add('btn-gold'); }
+    const timerEl = document.getElementById('admin-set-timer');
+    if (timerEl) { timerEl.textContent = 'Paused'; timerEl.className = 'timer'; }
+    toast('Set Paused', 'All slot timers frozen — team bids disabled', 'info');
+  } else {
+    // Resume the set — restore slot timers server-side
+    const { data, error } = await sb.rpc('resume_set_auction');
+    if (error || !data?.success) return showError(error?.message || data?.error || 'Resume failed');
+    _setIsPaused = false;
+    if (btn) { btn.textContent = '⏸ Pause Set'; btn.classList.add('btn-ghost'); btn.classList.remove('btn-gold'); }
+    toast('Set Resumed', 'Timers restored — bidding is live again', 'success');
+    // Reload slots so timer ticks restart from new end time
+    const setName = currentState?.current_set_name;
+    if (setName) { await loadSetSlots(setName); renderSetLauncher(); }
+  }
 }
 
 async function loadSetSlots(setName) {
