@@ -200,7 +200,7 @@ function _updateDmCountdown() {
 
   const endMs   = new Date(today + 'T' + end).getTime();
   const startMs = start ? new Date(today + 'T' + start).getTime() : null;
-  const rem     = endMs - Date.now();
+  const rem     = endMs - serverNow();
   const totalDur = startMs ? (endMs - startMs) : null;
 
   if (rem <= 0) {
@@ -1161,12 +1161,12 @@ function startTimer(endTime) {
   const newEndMs = new Date(endTime).getTime();
   if (Math.abs(newEndMs - _adminTimerEndMs) > 2000) {
     _adminTimerEndMs    = newEndMs;
-    _adminTimerTotalSec = Math.max(1, Math.ceil((newEndMs - Date.now()) / 1000));
+    _adminTimerTotalSec = Math.max(1, Math.ceil((newEndMs - serverNow()) / 1000));
   }
   const endMs    = newEndMs;
   const totalSec = _adminTimerTotalSec;
   function tick() {
-    const rem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+    const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
     const t   = el('timer');
     if (!t) { stopTimer(); return; }
     const expired = rem <= 0;
@@ -2286,7 +2286,7 @@ function renderLiveSetPanel() {
     if (rem <= 0) clearInterval(adminSetTimerInterval);
   }, 250);
 
-  const initRem = Math.max(0, Math.ceil((endMs - Date.now()) / 1000));
+  const initRem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
 
   const slotCards = activeSetSlots.map(slot => {
     const player  = allPlayers.find(p => p.id === slot.player_id) || {};

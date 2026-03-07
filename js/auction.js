@@ -369,6 +369,13 @@ async function fetchState() {
       state.rtm_team = rt || null;
     } else { state.rtm_team = null; }
 
+    // Fallback: if FK join returned null but we have current_player_id, fetch directly
+    if (!state.current_player && state.current_player_id) {
+      const { data: cp } = await sb.from('players_master')
+        .select('*').eq('id', state.current_player_id).maybeSingle();
+      state.current_player = cp || null;
+    }
+
     if (state.last_player_id) {
       const { data: lp } = await sb.from('players_master')
         .select('id,name,role,image_url,ipl_team,bfl_avg,is_overseas,is_uncapped,country').eq('id', state.last_player_id).maybeSingle();
@@ -415,6 +422,7 @@ async function fetchState() {
     }
     _isRendering = true; _renderingStart = Date.now();
     try { await applyState(state); }
+    catch(e) { console.error('[applyState] ERROR:', e.message, e); }
     finally { _isRendering = false; }
   } catch(e) { console.warn('[fetchState]', e.message); }
 }
@@ -718,6 +726,12 @@ function renderLastResult(state) {
 // ── Advanced player bid card ──────────────────────────────────
 async function renderLivePlayer(state, paused) {
   const p = state.current_player;
+  if (!p) return; // safety guard — should not happen but prevents TypeError cascade
+
+  // Show card FIRST — before anything can throw — so card is never stuck hidden
+  hide('no-auction'); hide('set-auction-view'); hide('rtm-pending');
+  show('player-card');
+
   const isMe = state.current_highest_team_id === myTeam?.id;
   const colors = getIPLColors(p.ipl_team);
   const logoUrl = getIPLLogoUrl(p.ipl_team);
@@ -892,7 +906,6 @@ async function renderLivePlayer(state, paused) {
     if (bidInput) bidInput.disabled = paused || bidBlocked;
   }
 
-  hide('no-auction'); hide('set-auction-view'); hide('rtm-pending'); show('player-card');
   if (!_samePlayer) renderUpcomingSets();  // refresh upcoming panel below live card
   if (paused) { stopTimer(); const t = el('timer'); if (t) { t.textContent = 'Paused'; t.className = 'timer'; } }
   else startTimer(state.bid_timer_end);
@@ -916,7 +929,7 @@ function renderRTMPending(state) {
   if (!state.rtm_pending) _rtmAlerted = false;
 
   const deadlineMs = state.rtm_deadline ? new Date(state.rtm_deadline).getTime() : null;
-  const remInit = deadlineMs ? Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000)) : null;
+  const remInit = deadlineMs ? Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000)) : null;
 
   cont.innerHTML = `
     <div class="rtm-banner${isRTMTeam?' rtm-my-turn':''}">
@@ -1510,7 +1523,7 @@ function _startDayCountdown(dayEndIso) {
   if (!dayEndIso) { lbl.textContent = ''; return; }
   const endMs = new Date(dayEndIso).getTime();
   function tick() {
-    const rem = endMs - Date.now();
+    const rem = endMs - serverNow();
     if (rem <= 0) { lbl.textContent = 'Ended'; clearInterval(_dayCountdownInterval); return; }
     const h = Math.floor(rem / 3600000);
     const m = Math.floor((rem % 3600000) / 60000);
