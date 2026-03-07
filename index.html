@@ -377,74 +377,82 @@ var _ri = 0; // current rule index
 var RULES = [
   { step:'Overview', title:'Welcome to BFL IPL 2026 Auction',
     body:'You are a <strong>franchise owner</strong> competing to build the best IPL squad within your budget.<ul>' +
-         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹120 Cr purse</span></li>' +
+         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹120 Cr purse</span> (retentions already deducted)</li>' +
          '<li>Sign exactly <span class="rule-tag rtag-blue">12 players</span> to complete your squad</li>' +
-         '<li>Auction runs in individual slots and <strong>set auctions</strong> (simultaneous bidding)</li>' +
-         '<li>The auctioneer controls the pace — watch the screen at all times</li>' +
-         '<li>Real-money free fantasy game — for bragging rights only </li></ul>' },
+         '<li>Auction runs in <strong>individual player</strong> slots and <strong>set auctions</strong> (simultaneous bidding on multiple players)</li>' +
+         '<li>The auctioneer (admin) controls the pace — watch the screen at all times</li>' +
+         '<li>Purse, squad, all teams, and bid history update in <strong>real-time</strong> automatically</li></ul>' },
 
   { step:'Purse & Bidding', title:'Purse & How to Bid',
-    body:'<ul><li>Your remaining purse is shown in the <strong>top-right corner</strong> at all times</li>' +
+    body:'<ul><li>Your remaining purse is shown in the <strong>top-right corner</strong> at all times (updated to the paisa)</li>' +
          '<li>Minimum bid increment is <span class="rule-tag rtag-gold">₹0.25 Cr</span> per step</li>' +
-         '<li>Bid input auto-fills the minimum valid next bid — you can raise it</li>' +
-         '<li>Press <strong>Enter</strong> or tap <strong>Bid</strong> to submit</li>' +
+         '<li>Bid input auto-fills the next valid minimum — raise it if you want to go higher</li>' +
+         '<li>Press <strong>Enter</strong> (keyboard shortcut: <strong>B</strong> to focus) or tap <strong>Bid</strong> to submit</li>' +
          '<li>If outbid, the bid button reappears immediately — be fast!</li>' +
-         '<li>You can <span class="rule-tag rtag-red">Undo</span> your own bid once before the next bid arrives</li>' +
-         '<li>You cannot bid if your purse is too low or squad limits would be exceeded</li></ul>' },
+         '<li>You can <span class="rule-tag rtag-red">↩ Undo</span> your own last bid once, before the timer ends</li>' +
+         '<li><strong>Bid and Undo are disabled</strong> once the timer expires — no late bids accepted</li>' +
+         '<li>The system blocks bids that would exceed your purse or break squad composition rules</li></ul>' },
 
   { step:'Squad Rules', title:'Building Your Squad',
-    body:'Your 12-player squad must satisfy IPL composition rules:<ul>' +
+    body:'Your 12-player squad must satisfy all these rules (enforced in real-time):<ul>' +
          '<li><span class="rule-tag rtag-blue">Min 1</span> Wicket-Keeper (WK)</li>' +
          '<li><span class="rule-tag rtag-blue">Min 2</span> Batters (BAT)</li>' +
          '<li><span class="rule-tag rtag-blue">Min 3</span> Bowlers (BOWL)</li>' +
          '<li><span class="rule-tag rtag-blue">Min 2</span> All-Rounders (AR)</li>' +
          '<li><span class="rule-tag rtag-blue">Min 1</span> Uncapped player (UC)</li>' +
          '<li><span class="rule-tag rtag-red">Max 4</span> Overseas players (OS)</li>' +
-         '<li><span class="rule-tag rtag-red">Max 3</span> from any single IPL franchise <em style="color:var(--muted);font-size:11px;">(⭐ Advantage team exempt)</em></li></ul>' +
-         'The <strong>Squad Composition bar</strong> on your sidebar shows real-time status. <strong>The system will block bids</strong> that would break any of these rules.' },
+         '<li><span class="rule-tag rtag-red">Max 3</span> from any single IPL franchise — <em>⭐ Advantage team is exempt</em></li></ul>' +
+         'The <strong>Squad Composition bar</strong> in your sidebar shows live status. ' +
+         'If a bid would violate any rule, it is <strong>blocked before submission</strong> with a clear error message.' },
 
   { step:'Retentions & RTM', title:'Retentions & Right to Match',
-    body:'<ul><li><span class="rule-tag rtag-gold">Retained players</span> are pre-assigned — cost already deducted from your purse</li>' +
-         '<li>Some teams have <span class="rule-tag rtag-purple">RTM cards</span> (Right to Match) — shown in the navbar</li>' +
-         '<li>When a player you previously owned goes to another team, you can exercise RTM to match their bid</li>' +
-         '<li>RTM is available in both <strong>single player</strong> and <strong>set auctions</strong></li>' +
-         '<li>You have a <strong>timer</strong> to decide — let it expire and you auto-decline</li>' +
-         '<li>RTM is <strong>one-shot per card</strong> — use them wisely</li></ul>' },
+    body:'<ul><li><span class="rule-tag rtag-gold">Retained players</span> are pre-assigned to your squad before the auction — their cost is already deducted from your purse</li>' +
+         '<li>Some teams have <span class="rule-tag rtag-purple">RTM cards</span> (Right to Match) shown as <strong>RTM×N</strong> in the navbar and All Teams table</li>' +
+         '<li>When an RTM-eligible player is sold, the original owning team gets a pop-up to <strong>Accept</strong> (match the winning bid) or <strong>Decline</strong></li>' +
+         '<li>RTM works in both <strong>single-player</strong> and <strong>set auctions</strong></li>' +
+         '<li>You have a countdown timer to decide — letting it expire = auto-decline</li>' +
+         '<li>Each RTM card is <strong>one-use only</strong> — choose your battles wisely</li>' +
+         '<li>RTM-accepted players appear with an <span class="rule-tag rtag-purple">RTM</span> tag in your squad</li></ul>' },
 
-  { step:'Set Auctions', title:'Set Auctions (Simultaneous Bidding)',
-    body:'During a <strong>Set Auction</strong>, multiple players go live at the same time:<ul>' +
-         '<li>All set players shown as cards — bid on any or all</li>' +
-         '<li>Shared countdown timer for the whole set</li>' +
-         '<li>Your purse is checked <strong>across all your winning bids</strong> — you cannot overcommit</li>' +
-         '<li><span class="rule-tag rtag-red">Max 3</span> IPL franchise limit enforced per slot even in sets</li>' +
-         '<li>Timer ends → auctioneer closes set → highest bidder per player wins</li>' +
-         '<li>Players with no bids go unsold and are marked in History/Players list</li>' +
-         '<li>RTM is checked when closing set — admin resolves, then closes remaining slots</li>' +
-         '<li><strong>Bid and Undo buttons are disabled</strong> once the timer ends — no last-second accidents</li></ul>' },
+  { step:'Set Auctions', title:'Set Auctions — Bidding on Multiple Players',
+    body:'During a <strong>Set Auction</strong>, multiple players go live simultaneously:<ul>' +
+         '<li>Each player appears as a card — bid on any or all independently</li>' +
+         '<li>One shared countdown timer covers the entire set</li>' +
+         '<li>Your total committed purse across all winning slots is checked — you cannot overcommit</li>' +
+         '<li>All squad composition rules (role, overseas, IPL franchise limit) are enforced per slot</li>' +
+         '<li>When the timer ends, the auctioneer closes the set — the highest bidder on each player wins</li>' +
+         '<li>Players with no bids are marked <strong>Unsold</strong> in the History and Players List</li>' +
+         '<li>If an RTM-eligible player is sold, RTM is resolved before the set fully closes</li>' +
+         '<li>Bid and Undo buttons are <strong>disabled immediately</strong> when the timer hits 0</li></ul>' },
 
   { step:'Strategy Tips', title:'Strategy & Tips',
-    body:'<ul><li><strong>Keep a buffer:</strong> Hold ₹3–5 Cr back — you need <span class="rule-tag rtag-gold">₹0.5 Cr × remaining slots</span></li>' +
-         '<li><strong>Watch the sidebar:</strong> All Teams table shows every purse — bid harder when rivals run low</li>' +
-         '<li><strong>Role gaps:</strong> Plug gaps early or be forced to overpay later</li>' +
-         '<li><strong>Overseas:</strong> Only 4 slots — pick those 4 carefully</li>' +
-         '<li><strong>IPL cap:</strong> Max 3 from any one franchise — plan ahead</li>' +
-         '<li><strong>Bid fast</strong> in set auctions</li></ul>' },
+    body:'<ul><li><strong>Keep a buffer:</strong> Always hold back at least <span class="rule-tag rtag-gold">₹0.5 Cr × remaining empty slots</span> or you cannot bid</li>' +
+         '<li><strong>All Teams table:</strong> Shows every team\'s purse, squad size, and OS count — use this to judge who can outbid you</li>' +
+         '<li><strong>Role gaps:</strong> The system will force you to fill mandatory roles later — don\'t neglect WK, BOWL, AR early</li>' +
+         '<li><strong>Set auctions:</strong> Bid on multiple players at once — but watch your total committed purse across slots</li>' +
+         '<li><strong>Overseas:</strong> Only 4 slots per team — prioritise which 4 OS players are worth it</li>' +
+         '<li><strong>IPL franchise cap:</strong> Max 3 from any one IPL team (Advantage team exempt) — spread your picks</li>' +
+         '<li><strong>RTM timing:</strong> You have a limited window — have your strategy ready before the auction starts</li>' +
+         '<li><strong>Bid history:</strong> Check the Bid History panel during a live auction to see all bids on the current player</li></ul>' },
 
-  { step:'Live Interface', title:'Live Auction Interface',
-    body:'<ul><li>Live Auction panel shows player, base price, current highest bid, 2nd highest, and timer</li>' +
-         '<li><span class="rule-tag rtag-green">Green (You)</span> label means you are winning — Bid becomes Undo</li>' +
-         '<li>The Last Result banner shows outcome of the previous player</li>' +
-         '<li>My Squad sidebar updates live as you win players</li>' +
-         '<li>If you lose connection, a <span class="rule-tag rtag-red">red banner</span> appears — system keeps polling</li>' +
-         '<li>Timer turns red and blinks in the final 5 seconds — be ready</li></ul>' },
+  { step:'Live Interface', title:'Live Auction Interface Guide',
+    body:'<ul><li><strong>Player card:</strong> Shows photo, IPL team, role, base price, BFL avg rating, and flags (OS/UC/RTM)</li>' +
+         '<li><strong>Bid stats:</strong> Highest bid + team, 2nd highest bid + team — updated in real time</li>' +
+         '<li><strong>Timer:</strong> Counts down live — turns amber at 10s, red at 5s. Shows "Ended" when closed</li>' +
+         '<li><span class="rule-tag rtag-green">✓ You are winning</span> appears when you hold the top bid</li>' +
+         '<li><strong>Bid History panel</strong> shows all bids placed on the current player (most recent first)</li>' +
+         '<li><strong>Last Result banner</strong> shows the outcome of the previous player (sold/unsold + price)</li>' +
+         '<li><strong>My Squad</strong> and <strong>All Teams</strong> sidebars update live</li>' +
+         '<li>If you lose connection, a <span class="rule-tag rtag-red">red banner</span> appears — the system keeps polling automatically</li>' +
+         '<li><strong>Upcoming Sets</strong> panel (during waiting) shows which players are coming up in each set</li></ul>' },
 
   { step:"You're Ready!", title:"✅ You're All Set — Good Luck!",
     body:'<ul><li>Tap <strong>Enter Auction Room</strong> below to join the live session</li>' +
          '<li>The auctioneer will start the first player when everyone is ready</li>' +
-         '<li>Keep this tab open and your screen on during bidding</li>' +
-         '<li>Do not share your password or log in from multiple devices</li>' +
-         '<li>If something looks wrong, tell the auctioneer — do not close and reopen</li></ul>' +
-         '<div style="margin-top:12px;text-align:center;font-size:20px;">May the best franchise win!</div>' }
+         '<li>Keep this tab open and your screen on during bidding — do not refresh mid-auction</li>' +
+         '<li>Do not share your password or log in from multiple devices simultaneously</li>' +
+         '<li>If something looks wrong, tell the auctioneer immediately — do not close and reopen</li></ul>' +
+         '<div style="margin-top:12px;text-align:center;font-size:20px;">May the best franchise win! 🏆</div>' }
 ];
 
 function showRules() {

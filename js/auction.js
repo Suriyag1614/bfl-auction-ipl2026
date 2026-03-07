@@ -1257,16 +1257,44 @@ async function loadBidHistory(playerId) {
     const { data: bids, error } = await sb.from('bid_log')
       .select('bid_amount,bid_at,team:teams(team_name)')
       .eq('player_id', playerId).order('bid_at', { ascending: false }).limit(12);
-    if (error) { console.warn('[BidHistory]', error.message); wrap.innerHTML = ''; return; }
-    if (!bids?.length) { wrap.innerHTML = '<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">No bids placed yet</div></div>'; return; }
-    wrap.innerHTML = `<div class="bid-history">
-      <div class="bid-history-title">Bid History <span style="color:var(--muted);font-size:10px;">(${bids.length})</span></div>
-      ${bids.map((b,i) => `<div class="bid-history-row${i===0?' bh-latest':''}">
-        <span class="bh-rank">#${bids.length - i}</span>
-        <span class="bh-team">${b.team?.team_name||'?'}</span>
-        <span class="bh-amount">${fmt(b.bid_amount)}</span>
-      </div>`).join('')}
-    </div>`;
+    if (error) { console.warn('[BidHistory]', error.message); }
+
+    if (bids?.length) {
+      wrap.innerHTML = `<div class="bid-history">
+        <div class="bid-history-title">Bid History <span style="color:var(--muted);font-size:10px;">(${bids.length})</span></div>
+        ${bids.map((b,i) => `<div class="bid-history-row${i===0?' bh-latest':''}">
+          <span class="bh-rank">#${bids.length - i}</span>
+          <span class="bh-team">${b.team?.team_name||'?'}</span>
+          <span class="bh-amount">${fmt(b.bid_amount)}</span>
+        </div>`).join('')}
+      </div>`;
+    } else {
+      // bid_log empty (table may be fresh or bids cleared) — show live state from currentState
+      const st = currentState;
+      const rows = [];
+      if (st?.current_player_id === playerId) {
+        if (st.current_highest_bid > 0 && st.current_highest_team_id) {
+          const { data: ht } = await sb.from('teams').select('team_name').eq('id', st.current_highest_team_id).maybeSingle();
+          rows.push({ rank: 1, team: ht?.team_name || '?', amount: st.current_highest_bid, label: 'Current' });
+        }
+        if (st.second_highest_bid > 0 && st.second_highest_team_id) {
+          const { data: st2 } = await sb.from('teams').select('team_name').eq('id', st.second_highest_team_id).maybeSingle();
+          rows.push({ rank: 2, team: st2?.team_name || '?', amount: st.second_highest_bid, label: '2nd' });
+        }
+      }
+      if (rows.length) {
+        wrap.innerHTML = `<div class="bid-history">
+          <div class="bid-history-title">Live Bids</div>
+          ${rows.map(r => `<div class="bid-history-row${r.rank===1?' bh-latest':''}">
+            <span class="bh-rank">${r.label}</span>
+            <span class="bh-team">${r.team}</span>
+            <span class="bh-amount">${fmt(r.amount)}</span>
+          </div>`).join('')}
+        </div>`;
+      } else {
+        wrap.innerHTML = `<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">No bids placed yet</div></div>`;
+      }
+    }
   } catch(e) { console.warn('[BidHistory]', e.message); wrap.innerHTML = ''; }
 }
 
@@ -1359,7 +1387,7 @@ function renderAllTeams() {
         <div class="presence-lbl ${pres.cls}">${pres.text}</div>
       </td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;color:${purseColor};white-space:nowrap;">
-        ₹${purse.toFixed(1)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>
+        ₹${purse.toFixed(2)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>
       </td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;white-space:nowrap;">
         ${t.playerCount}<span style="color:var(--muted);font-size:11px;font-weight:400;">/12</span>

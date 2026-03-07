@@ -285,12 +285,15 @@ select.form-input{cursor:pointer;}
   vertical-align:middle;
 }
 /* ── My Squad column widths (total ~320px sidebar) ── */
-/* #(22) | Player(auto) | Role(46) | IPL(42) | Paid(68) */
-.squad-table col.col-num   {width:22px;}
-.squad-table col.col-player{width:auto;}   /* takes remaining space */
-.squad-table col.col-role  {width:46px;}
-.squad-table col.col-ipl   {width:42px;}
-.squad-table col.col-paid  {width:68px;}
+/* #(28) | Player(auto) | Role(52) | IPL(44) | Paid(72) */
+.squad-table col.col-num   {width:28px;}
+.squad-table col.col-player{width:auto;}
+.squad-table col.col-role  {width:52px;}
+.squad-table col.col-ipl   {width:44px;}
+.squad-table col.col-paid  {width:72px;}
+/* Override data-table default padding for squad — it's a compact sidebar table */
+.squad-table th,
+.squad-table td { padding:6px 6px; }
 
 /* ── All Teams column widths ── */
 /* Team(auto) | Purse(74) | Sq(44) | OS(34) */
@@ -726,10 +729,11 @@ select.form-input{cursor:pointer;}
   .squad-sidebar #all-teams-card .table-wrap{max-height:260px!important;}
   /* Undo fixed column widths — full width is fine when stacked */
   /* At 900px+ sidebar stacks, tables are wider — relax padding slightly */
-  .squad-table th, .squad-table td,
-  .all-teams-table-inner th, .all-teams-table-inner td{font-size:13px;padding:7px 9px;}
+  .squad-table th, .squad-table td { font-size:13px; padding:7px 7px; }
+  .all-teams-table-inner th, .all-teams-table-inner td { font-size:13px; padding:7px 9px; }
   /* Slightly wider col widths when sidebar is full width */
-  .squad-table col.col-role {width:52px;}
+  .squad-table col.col-num  {width:32px;}
+  .squad-table col.col-role {width:54px;}
   .squad-table col.col-ipl  {width:50px;}
   .squad-table col.col-paid {width:76px;}
   .all-teams-table-inner col.col-purse{width:84px;}

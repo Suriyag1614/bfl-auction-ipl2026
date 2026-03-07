@@ -96,24 +96,21 @@ async function promptSetDay() {
   // Pre-fill timer fields from current DB values if available
   try {
     const { data: aState } = await sb.from('auction_state')
-      .select('bid_timer_default,set_timer_default,auction_day,day_start,day_end').eq('id',1).maybeSingle();
+      .select('bid_duration_seconds,set_duration_seconds,bid_timer_default,set_timer_default,rtm_timeout_seconds,rtm_accept_timer_seconds,auction_day,day_start,day_end').eq('id',1).maybeSingle();
     if (aState) {
       const bidDef = el('dm-bid-timer');
       const setDef = el('dm-set-timer');
       const rtmDef = el('dm-rtm-timer');
-      if (bidDef && aState.bid_timer_default) {
-        bidDef.value = aState.bid_timer_default;
-        updateTimerHint('dm-bid-timer', 'dm-timer-hint');
-      }
-      if (setDef && aState.set_timer_default) {
-        setDef.value = aState.set_timer_default;
-        updateTimerHint('dm-set-timer', 'dm-set-timer-hint');
-      }
-      if (rtmDef && aState.rtm_accept_timer_seconds) {
-        rtmDef.value = aState.rtm_accept_timer_seconds;
-      }
+      // bid timer: prefer bid_timer_default, fallback to bid_duration_seconds
+      const bidVal = aState.bid_timer_default || aState.bid_duration_seconds;
+      if (bidDef && bidVal) { bidDef.value = bidVal; updateTimerHint('dm-bid-timer', 'dm-timer-hint'); }
+      // set timer: prefer set_timer_default/set_duration_seconds
+      const setVal = aState.set_timer_default || aState.set_duration_seconds;
+      if (setDef && setVal) { setDef.value = setVal; updateTimerHint('dm-set-timer', 'dm-set-timer-hint'); }
+      // RTM timer: prefer rtm_accept_timer_seconds, fallback rtm_timeout_seconds
+      const rtmVal = aState.rtm_accept_timer_seconds || aState.rtm_timeout_seconds;
+      if (rtmDef && rtmVal) { rtmDef.value = rtmVal; }
       if (aState.auction_day) { _dmDayVal = aState.auction_day; el('dm-day-val').textContent = _dmDayVal; }
-      // Populate start/end from DB if saved
       if (aState.day_start) {
         const t = new Date(aState.day_start);
         const hhmm = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
@@ -257,27 +254,43 @@ async function saveDaySettings() {
 
   const startIso = start ? new Date(today + 'T' + start).toISOString() : null;
   const endIso   = end   ? new Date(today + 'T' + end).toISOString()   : null;
-  const update = { auction_day: _dmDayVal };
+
+  // Single atomic update — all timer fields + day/session in one call
+  const update = {
+    auction_day:              _dmDayVal,
+    // Timers — bid_duration_seconds drives start_auction + start_set_auction (fallback)
+    bid_duration_seconds:     bidTimer,
+    bid_timer_default:        bidTimer,
+    // set_duration_seconds drives start_set_auction (preferred column, added in migration 30)
+    set_duration_seconds:     setTimer,
+    set_timer_default:        setTimer,
+    // RTM timers — rtm_timeout_seconds is the original column; rtm_accept_timer_seconds added in v26
+    rtm_timeout_seconds:      rtmTimer,
+    rtm_accept_timer_seconds: rtmTimer,
+  };
   if (startIso) update.day_start = startIso;
   if (endIso)   update.day_end   = endIso;
 
   const { error } = await sb.from('auction_state').update(update).eq('id', 1);
-  if (error) { toast('Save Failed', error.message, 'error'); return; }
-
-  // Save both timer defaults (graceful — columns added via SQL migration)
-  try {
-    await sb.from('auction_state').update({
-      bid_duration_seconds:     bidTimer,
-      bid_timer_default:        bidTimer,
-      set_timer_default:        setTimer,
-      rtm_accept_timer_seconds: rtmTimer,
-    }).eq('id', 1);
-  } catch(_) {}
+  if (error) {
+    // Some columns may not exist yet (migration not run) — fall back to core columns only
+    const coreUpdate = {
+      auction_day:          _dmDayVal,
+      bid_duration_seconds: bidTimer,
+      rtm_timeout_seconds:  rtmTimer,
+    };
+    if (startIso) coreUpdate.day_start = startIso;
+    if (endIso)   coreUpdate.day_end   = endIso;
+    const { error: e2 } = await sb.from('auction_state').update(coreUpdate).eq('id', 1);
+    if (e2) { toast('Save Failed', e2.message, 'error'); if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; } return; }
+    toast('Partially Saved', 'Core timers saved. Run migration 30 to unlock all timer fields.', 'warn');
+  } else {
+    toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · Single ' + bidTimer + 's · Set ' + setTimer + 's · RTM ' + rtmTimer + 's', 'success');
+  }
 
   const dayEl = el('stat-day');
   if (dayEl) { dayEl.textContent = 'Day ' + _dmDayVal; dayEl.closest('.stat-chip')?.style.setProperty('border-color','var(--gold-dim)'); }
   if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
-  toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · Single ' + bidTimer + 's · Set ' + setTimer + 's · RTM ' + rtmTimer + 's', 'success');
   closeDayModal();
 }
 
@@ -1380,7 +1393,7 @@ function renderAdminTeams() {
         <div class="presence-lbl ${pres.cls}">${pres.text}</div>
       </td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;color:${purseColor};white-space:nowrap;">
-        ₹${purse.toFixed(1)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>
+        ₹${purse.toFixed(2)}<span style="font-size:11px;font-weight:500;color:var(--muted);"> Cr</span>
       </td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;white-space:nowrap;">
         ${squadCount}<span style="color:var(--muted);font-size:12px;font-weight:400;">/12</span>
@@ -2277,7 +2290,12 @@ async function renderSetLauncher() {
   const cont = el('set-launcher'); if (!cont) return;
   cont.innerHTML = '<div class="empty-cell">Loading…</div>';
   const groups = await loadSetGroups();
-  const sets   = Object.keys(groups).sort();
+  // Sort by set_no (numeric) from the first player in each group, then name fallback
+  const sets = Object.keys(groups).sort((a, b) => {
+    const na = groups[a][0]?.set_no ?? 9999;
+    const nb = groups[b][0]?.set_no ?? 9999;
+    return na !== nb ? na - nb : a.localeCompare(b);
+  });
   const isSetLive = currentState?.status === 'set_live';
   const liveSet   = currentState?.current_set_name || '';
 
