@@ -283,6 +283,13 @@ async function init() {
   pingAndRefresh();
   setInterval(pingAndRefresh, 30000);
 
+  // ── 30s auto-refresh: force complete state re-fetch to keep teams in sync ──
+  setInterval(() => {
+    _lastStateHash = ''; _lastSlotsHash = ''; _lastAppliedStatus = '';
+    fetchState();
+    if (myTeam) { loadSquad(); loadStats(); }
+  }, 30000);
+
   // Re-sync server clock every 5 minutes
   setInterval(syncServerClock, 5 * 60 * 1000);
 
@@ -415,8 +422,8 @@ async function fetchState() {
 
     _lastStateHash = hash;
     currentState = state;
-    // Watchdog: clear stale lock if previous render hung for >8s
-    if (_isRendering && Date.now() - _renderingStart > 8000) {
+    // Watchdog: clear stale lock if previous render hung for >4s
+    if (_isRendering && Date.now() - _renderingStart > 4000) {
       console.warn('[fetchState] clearing stale _isRendering lock');
       _isRendering = false;
     }
@@ -490,7 +497,16 @@ async function applyState(state) {
     _rtmAlerted = false;
     hide('no-auction'); hide('rtm-pending'); hide('set-auction-view');
     show('player-card');
-    await renderSetInPlayerCard(state);
+    // Timeout guard: if renderSetInPlayerCard hangs, release lock after 5s
+    const setRenderTimeout = setTimeout(() => {
+      console.warn('[applyState] renderSetInPlayerCard timeout — releasing lock');
+      _isRendering = false;
+    }, 5000);
+    try {
+      await renderSetInPlayerCard(state);
+    } finally {
+      clearTimeout(setRenderTimeout);
+    }
 
   } else if ((state.status === 'live' || state.status === 'paused') && state.current_player) {
     stopSetTimer(); stopRTMTimer();
@@ -541,7 +557,20 @@ let _lastResultHash = '';
 // ── Set Highlights Banner (shown after set_done) ─────────────
 let _setHighlightCache = '';
 async function renderSetHighlights(state, cont) {
-  const setName = state.last_set_name || state.last_sold_to_team || 'Set';
+  // last_set_name column may not exist — derive from auction_slots (most reliable)
+  // We find the set that was most recently closed (latest sold_at in auction_slots)
+  let setName = '';
+  try {
+    const { data: recent } = await sb.from('auction_slots')
+      .select('set_name').in('status', ['sold','unsold'])
+      .order('updated_at', { ascending: false }).limit(1);
+    if (recent?.[0]?.set_name) setName = recent[0].set_name;
+  } catch(_) {}
+  if (!setName) {
+    // Fallback: last_sold_to_team is set to last winning team name in close_set_auction
+    // Try finding from team_players joined to auction_slots
+    setName = state.last_set_name || state.current_set_name || 'Set';
+  }
 
   // Show a skeleton immediately while fetching
   cont.innerHTML = `<div class="set-hl-banner">
@@ -554,22 +583,33 @@ async function renderSetHighlights(state, cont) {
     </div>
   </div>`;
 
-  // Avoid re-fetching for same set
-  if (_setHighlightCache === setName) return;
-  _setHighlightCache = setName;
+  // Do NOT cache — always re-fetch so fresh data shows after close
+  _setHighlightCache = '';
 
   try {
-    // Fetch sold results for this set
-    const { data: sold } = await sb.from('team_players')
-      .select('sold_price,team:teams(team_name,id),player:players_master(id,name,role,ipl_team,image_url,is_overseas,set_name)')
-      .order('sold_price', { ascending: false });
+    // Fetch sold results for this set via auction_slots (ground truth)
+    const { data: slots } = await sb.from('auction_slots')
+      .select('player_id,current_highest_bid,current_highest_team_id,status,set_name')
+      .eq('set_name', setName);
 
-    const setResults = (sold||[]).filter(r => r.player?.set_name === setName);
+    const soldSlots   = (slots||[]).filter(s => s.status === 'sold' && s.current_highest_bid > 0);
+    const unsoldCount = (slots||[]).filter(s => s.status === 'unsold').length;
 
-    // Also fetch unsold from unsold_log for this set
-    const { data: unsoldRows } = await sb.from('unsold_log')
-      .select('player:players_master(id,name,set_name)');
-    const unsoldCount = (unsoldRows||[]).filter(r => r.player?.set_name === setName).length;
+    // Enrich with player + team names
+    const playerIds = soldSlots.map(s => s.player_id);
+    const teamIds   = soldSlots.map(s => s.current_highest_team_id).filter(Boolean);
+    const [{ data: players }, { data: teamsData }] = await Promise.all([
+      playerIds.length ? sb.from('players_master').select('id,name,role,ipl_team,image_url,is_overseas').in('id', playerIds) : Promise.resolve({data:[]}),
+      teamIds.length   ? sb.from('teams').select('id,team_name').in('id', teamIds) : Promise.resolve({data:[]}),
+    ]);
+    const pMap = {}; (players||[]).forEach(p => { pMap[p.id] = p; });
+    const tMap = {}; (teamsData||[]).forEach(t => { tMap[t.id] = t; });
+
+    const setResults = soldSlots.map(s => ({
+      sold_price: s.current_highest_bid,
+      player: pMap[s.player_id] || {},
+      team:   tMap[s.current_highest_team_id] || {},
+    })).sort((a,b) => b.sold_price - a.sold_price);
 
     if (!setResults.length) {
       const cardsEl = document.getElementById('set-hl-cards');
@@ -1214,18 +1254,20 @@ function patchSlotCard(slot) {
 async function loadBidHistory(playerId) {
   const wrap = el('bid-history-wrap'); if (!wrap || !playerId) return;
   try {
-    const { data: bids } = await sb.from('bid_log')
+    const { data: bids, error } = await sb.from('bid_log')
       .select('bid_amount,bid_at,team:teams(team_name)')
-      .eq('player_id', playerId).order('bid_at', { ascending: false }).limit(8);
-    if (!bids?.length) { wrap.innerHTML = ''; return; }
+      .eq('player_id', playerId).order('bid_at', { ascending: false }).limit(12);
+    if (error) { console.warn('[BidHistory]', error.message); wrap.innerHTML = ''; return; }
+    if (!bids?.length) { wrap.innerHTML = '<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">No bids placed yet</div></div>'; return; }
     wrap.innerHTML = `<div class="bid-history">
-      <div class="bid-history-title">Bid History</div>
-      ${bids.map(b => `<div class="bid-history-row">
+      <div class="bid-history-title">Bid History <span style="color:var(--muted);font-size:10px;">(${bids.length})</span></div>
+      ${bids.map((b,i) => `<div class="bid-history-row${i===0?' bh-latest':''}">
+        <span class="bh-rank">#${bids.length - i}</span>
         <span class="bh-team">${b.team?.team_name||'?'}</span>
         <span class="bh-amount">${fmt(b.bid_amount)}</span>
       </div>`).join('')}
     </div>`;
-  } catch(e) { wrap.innerHTML = ''; }
+  } catch(e) { console.warn('[BidHistory]', e.message); wrap.innerHTML = ''; }
 }
 
 // ── Mini history ──────────────────────────────────────────────
@@ -1520,8 +1562,9 @@ function startTimer(endTime) {
       bar.style.width = pct + '%';
       bar.className = 'timer-progress-bar ' + (expired ? 'tp-ended' : rem <= 5 ? 'tp-red' : rem <= 10 ? 'tp-amber' : 'tp-green');
     }
-    // Disable bid button when timer ends (server will also reject)
+    // Disable bid button AND undo button when timer ends (server will also reject)
     const bidBtn = el('bid-btn');
+    const undoBidBtn = el('undo-bid-btn');
     if (bidBtn && !bidBtn._inFlight) {
       if (expired) {
         bidBtn.disabled = true;  // timer expired — hard disable
@@ -1529,6 +1572,10 @@ function startTimer(endTime) {
         if (errEl && !errEl.textContent) errEl.textContent = 'Bidding closed — timer has ended';
       }
       // When not expired: do NOT re-enable here — renderLivePlayer owns the non-timer disabled state
+    }
+    if (undoBidBtn && expired) {
+      undoBidBtn.disabled = true;
+      undoBidBtn.title = 'Bidding closed — timer has ended';
     }
   }
   tick(); timerInterval = setInterval(tick, 500);
@@ -1578,11 +1625,12 @@ function startSetTimer(endMs) {
       setBar.style.width = expired ? '0%' : pct + '%';
       setBar.className = 'timer-progress-bar ' + (expired ? 'tp-ended' : rem <= 5 ? 'tp-red' : rem <= 10 ? 'tp-amber' : 'tp-green');
     }
-    // Disable all set bid buttons when timer expires
+    // Disable all set bid buttons AND undo buttons when timer expires
     if (expired) {
       _setExpired = true;
-      document.querySelectorAll('.sc-bid-btn').forEach(b => { b.disabled = true; });
+      document.querySelectorAll('.sc-bid-btn').forEach(b => { b.disabled = true; b.textContent = 'Closed'; });
       document.querySelectorAll('.sc-bid-input').forEach(i => { i.disabled = true; });
+      document.querySelectorAll('.sc-undo-btn').forEach(b => { b.disabled = true; b.title = 'Bidding closed — timer ended'; });
       const grid = el('set-slots-grid');
       if (grid) grid.classList.add('set-expired');
     }

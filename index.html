@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BFL IPL 2026 — Login</title>
-  <link rel="stylesheet" href="css/styles.css?v=36">
+  <link rel="stylesheet" href="css/styles.css?v=56">
   <style>
     /* Only rules-specific styles that don't exist in styles.css */
     @keyframes float-emoji { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
@@ -166,7 +166,7 @@
 </div>
 
 <script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="js/supabaseClient.js?v=36"></script>
+<script src="js/supabaseClient.js?v=56"></script>
 <script>
 'use strict';
 
@@ -174,7 +174,7 @@ var _role  = 'team';
 var _teams = [];
 
 // ── Helpers ───────────────────────────────────────────────────
-var IPL_LOGO = function(c){ return 'images\\' + c + 'outline.png'; };
+var IPL_LOGO = function(c){ return 'https://documents.iplt20.com/ipl/'+c+'/logos/Logooutline/'+c+'outline.png'; };
 var EMOJIS = [['GUJARAT','⚡'],['MUMBAI',''],['PUNJAB','♦️'],['CHENNAI',''],['KOLKATA',''],['DELHI',''],['RAJASTHAN',''],['SUNRISERS',''],['ROYAL',''],['LUCKNOW','']];
 var ICODES = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],['ROYAL','RCB'],['LUCKNOW','LSG']];
 function teamEmoji(n){ var u=(n||'').toUpperCase(); var m=EMOJIS.find(function(x){return u.includes(x[0]);}); return m?m[1]:''; }
@@ -377,7 +377,7 @@ var _ri = 0; // current rule index
 var RULES = [
   { step:'Overview', title:'Welcome to BFL IPL 2026 Auction',
     body:'You are a <strong>franchise owner</strong> competing to build the best IPL squad within your budget.<ul>' +
-         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹100 Cr purse</span></li>' +
+         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹120 Cr purse</span></li>' +
          '<li>Sign exactly <span class="rule-tag rtag-blue">12 players</span> to complete your squad</li>' +
          '<li>Auction runs in individual slots and <strong>set auctions</strong> (simultaneous bidding)</li>' +
          '<li>The auctioneer controls the pace — watch the screen at all times</li>' +
@@ -400,13 +400,14 @@ var RULES = [
          '<li><span class="rule-tag rtag-blue">Min 2</span> All-Rounders (AR)</li>' +
          '<li><span class="rule-tag rtag-blue">Min 1</span> Uncapped player (UC)</li>' +
          '<li><span class="rule-tag rtag-red">Max 4</span> Overseas players (OS)</li>' +
-         '<li><span class="rule-tag rtag-red">Max 3</span> from any single IPL franchise</li></ul>' +
-         'The <strong>Squad Composition bar</strong> on your sidebar shows real-time status.' },
+         '<li><span class="rule-tag rtag-red">Max 3</span> from any single IPL franchise <em style="color:var(--muted);font-size:11px;">(⭐ Advantage team exempt)</em></li></ul>' +
+         'The <strong>Squad Composition bar</strong> on your sidebar shows real-time status. <strong>The system will block bids</strong> that would break any of these rules.' },
 
   { step:'Retentions & RTM', title:'Retentions & Right to Match',
     body:'<ul><li><span class="rule-tag rtag-gold">Retained players</span> are pre-assigned — cost already deducted from your purse</li>' +
          '<li>Some teams have <span class="rule-tag rtag-purple">RTM cards</span> (Right to Match) — shown in the navbar</li>' +
          '<li>When a player you previously owned goes to another team, you can exercise RTM to match their bid</li>' +
+         '<li>RTM is available in both <strong>single player</strong> and <strong>set auctions</strong></li>' +
          '<li>You have a <strong>timer</strong> to decide — let it expire and you auto-decline</li>' +
          '<li>RTM is <strong>one-shot per card</strong> — use them wisely</li></ul>' },
 
@@ -415,9 +416,11 @@ var RULES = [
          '<li>All set players shown as cards — bid on any or all</li>' +
          '<li>Shared countdown timer for the whole set</li>' +
          '<li>Your purse is checked <strong>across all your winning bids</strong> — you cannot overcommit</li>' +
+         '<li><span class="rule-tag rtag-red">Max 3</span> IPL franchise limit enforced per slot even in sets</li>' +
          '<li>Timer ends → auctioneer closes set → highest bidder per player wins</li>' +
-         '<li>Players with no bids go unsold and may be re-auctioned individually</li>' +
-         '<li>You can undo a set bid while the timer is still running</li></ul>' },
+         '<li>Players with no bids go unsold and are marked in History/Players list</li>' +
+         '<li>RTM is checked when closing set — admin resolves, then closes remaining slots</li>' +
+         '<li><strong>Bid and Undo buttons are disabled</strong> once the timer ends — no last-second accidents</li></ul>' },
 
   { step:'Strategy Tips', title:'Strategy & Tips',
     body:'<ul><li><strong>Keep a buffer:</strong> Hold ₹3–5 Cr back — you need <span class="rule-tag rtag-gold">₹0.5 Cr × remaining slots</span></li>' +

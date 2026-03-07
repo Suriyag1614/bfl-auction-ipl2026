@@ -96,18 +96,21 @@ async function promptSetDay() {
   // Pre-fill timer fields from current DB values if available
   try {
     const { data: aState } = await sb.from('auction_state')
-      .select('bid_duration_seconds,bid_timer_default,set_timer_default,auction_day,day_start,day_end').eq('id',1).maybeSingle();
+      .select('bid_timer_default,set_timer_default,auction_day,day_start,day_end').eq('id',1).maybeSingle();
     if (aState) {
       const bidDef = el('dm-bid-timer');
       const setDef = el('dm-set-timer');
-      // Prefer bid_duration_seconds (the live value), fall back to bid_timer_default
-      if (bidDef && (aState.bid_duration_seconds || aState.bid_timer_default)) {
-        bidDef.value = aState.bid_duration_seconds || aState.bid_timer_default;
+      const rtmDef = el('dm-rtm-timer');
+      if (bidDef && aState.bid_timer_default) {
+        bidDef.value = aState.bid_timer_default;
         updateTimerHint('dm-bid-timer', 'dm-timer-hint');
       }
       if (setDef && aState.set_timer_default) {
         setDef.value = aState.set_timer_default;
         updateTimerHint('dm-set-timer', 'dm-set-timer-hint');
+      }
+      if (rtmDef && aState.rtm_accept_timer_seconds) {
+        rtmDef.value = aState.rtm_accept_timer_seconds;
       }
       if (aState.auction_day) { _dmDayVal = aState.auction_day; el('dm-day-val').textContent = _dmDayVal; }
       // Populate start/end from DB if saved
@@ -170,10 +173,10 @@ function _dmAutoCalcBidTimer() {
   const sessionMs = new Date(today+'T'+end).getTime() - new Date(today+'T'+start).getTime();
   if (sessionMs <= 0) return;
   // Single player: ~1% of session, capped 30-120s
-  const autoSingle = Math.min(3600, Math.max(5, Math.round(sessionMs / 1000 / 100 / 5) * 5));
+  const autoSingle = Math.min(120, Math.max(30, Math.round(sessionMs / 1000 / 100 / 5) * 5));
   el('dm-bid-timer').value = autoSingle;
-  // Set timer: 2× single player, capped to 24h
-  const autoSet = Math.min(7200, Math.max(10, autoSingle * 2));
+  // Set timer: 2× single player, capped 60-300s
+  const autoSet = Math.min(300, Math.max(60, autoSingle * 2));
   const setTimerEl = el('dm-set-timer');
   if (setTimerEl) setTimerEl.value = autoSet;
 }
@@ -244,8 +247,10 @@ async function saveDaySettings() {
   const end      = el('dm-end')?.value;
   const bidTimerRaw = parseInt(el('dm-bid-timer')?.value) || 60;
   const setTimerRaw = parseInt(el('dm-set-timer')?.value) || 90;
-  const bidTimer    = Math.max(5, Math.min(86400, bidTimerRaw));   // 5s–24h
-  const setTimer    = Math.max(5, Math.min(86400, setTimerRaw));   // 5s–24h
+  const rtmTimerRaw = parseInt(el('dm-rtm-timer')?.value) || 60;
+  const bidTimer    = Math.max(30, Math.min(600, bidTimerRaw));
+  const setTimer    = Math.max(30, Math.min(1800, setTimerRaw));
+  const rtmTimer    = Math.max(15, Math.min(300, rtmTimerRaw));
   // Update inputs to reflect clamped values
   if (el('dm-bid-timer')) { el('dm-bid-timer').value = bidTimer; updateTimerHint('dm-bid-timer','dm-timer-hint'); }
   if (el('dm-set-timer')) { el('dm-set-timer').value = setTimer; updateTimerHint('dm-set-timer','dm-set-timer-hint'); }
@@ -259,23 +264,20 @@ async function saveDaySettings() {
   const { error } = await sb.from('auction_state').update(update).eq('id', 1);
   if (error) { toast('Save Failed', error.message, 'error'); return; }
 
-  // Save timer defaults — write to bid_duration_seconds (what start_auction RPC reads)
-  // and bid_timer_default/set_timer_default for display. Graceful if columns missing.
+  // Save both timer defaults (graceful — columns added via SQL migration)
   try {
     await sb.from('auction_state').update({
-      bid_duration_seconds: bidTimer,      // ← what start_auction / start_set_auction use
-      bid_timer_default:    bidTimer,
-      set_timer_default:    setTimer,
+      bid_duration_seconds:     bidTimer,
+      bid_timer_default:        bidTimer,
+      set_timer_default:        setTimer,
+      rtm_accept_timer_seconds: rtmTimer,
     }).eq('id', 1);
-  } catch(_) {
-    // Fallback: at minimum write bid_duration_seconds
-    try { await sb.from('auction_state').update({ bid_duration_seconds: bidTimer }).eq('id', 1); } catch(_) {}
-  }
+  } catch(_) {}
 
   const dayEl = el('stat-day');
   if (dayEl) { dayEl.textContent = 'Day ' + _dmDayVal; dayEl.closest('.stat-chip')?.style.setProperty('border-color','var(--gold-dim)'); }
-  if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save & Publish'; }
-  toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · Single ' + bidTimer + 's · Set ' + setTimer + 's', 'success');
+  if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
+  toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · Single ' + bidTimer + 's · Set ' + setTimer + 's · RTM ' + rtmTimer + 's', 'success');
   closeDayModal();
 }
 
@@ -370,6 +372,12 @@ async function init() {
   // Primary sync: poll every 2s (realtime is just a speed-boost on top)
   startAdminPolling();
 
+  // ── 30s full auto-refresh for admin (catches any missed realtime events) ──
+  setInterval(() => {
+    _lastAdminStateHash = '';
+    Promise.all([loadAuctionState(), loadTeams(), loadHistory()]).then(() => updateStats());
+  }, 30000);
+
   // Re-sync on tab focus — force full reload to catch any missed events
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
@@ -395,7 +403,7 @@ async function pollAdminState() {
   // Lightweight state check — only do heavy reload if something changed
   try {
     const { data: state } = await sb.from('auction_state')
-      .select('status,current_player_id,current_highest_bid,current_highest_team_id,bid_timer_end,rtm_pending,rtm_team_id,last_player_id,current_set_name,unsold_player_ids,autopilot_enabled,last_action_at,bid_duration_seconds,auction_day')
+      .select('status,current_player_id,current_highest_bid,current_highest_team_id,bid_timer_end,rtm_pending,rtm_team_id,last_player_id,current_set_name,unsold_player_ids,autopilot_enabled,last_action_at')
       .eq('id', 1).maybeSingle();
     if (!state) return;
 
@@ -411,7 +419,7 @@ async function pollAdminState() {
       state.current_highest_team_id, state.bid_timer_end, state.rtm_pending,
       state.rtm_team_id, state.last_player_id, state.current_set_name,
       (state.unsold_player_ids||[]).length, state.autopilot_enabled,
-      state.last_action_at, state.bid_duration_seconds, state.auction_day
+      state.last_action_at
     ].join('|');
     if (hash === _lastAdminStateHash) return; // nothing changed
     _lastAdminStateHash = hash;
@@ -537,7 +545,7 @@ function renderPlayerList() {
     if (sold) {
       const retTag = sold.is_retained ? ' <span class="tag tag-retained" style="font-size:10px;">RTN</span>' : '';
       badge  = `<span class="tag tag-sold" style="font-size:11px;">₹${Number(sold.sold_price).toFixed(2)} → ${sold.team_name}</span>${retTag}`;
-      action = `<button class="btn btn-sm btn-ghost" onclick="undoSale()" title="Undo">↩</button>`;
+      action = `<button class="btn btn-sm btn-ghost" onclick="undoSaleByPlayer('${p.name.replace(/'/g,"\\'")}','${(sold.team_name||'').replace(/'/g,"\\'")}',${sold.sold_price})" title="Undo">↩</button>`;
     } else if (isUnsold) {
       badge  = '<span class="tag tag-unsold">Unsold</span>';
       action = `<button class="btn btn-sm btn-start" onclick="startAuction('${p.id}')">↻ Re</button>
@@ -2379,13 +2387,22 @@ async function launchSetAuction(setName) {
 }
 
 async function closeSetAuction() {
-  if (!await confirm2('Players with bids → **SOLD**. No bids → **UNSOLD**.', {title:'Close Set',icon:'',danger:true})) return;
+  if (!await confirm2('Players with bids → **SOLD** (RTM checked). No bids → **UNSOLD**.', {title:'Close Set',icon:'',danger:true})) return;
   clearError();
   const setName = currentState?.current_set_name;
   if (!setName) return showError('No active set auction');
   const { data, error } = await sb.rpc('close_set_auction', { p_set_name: setName });
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error||'Error');
+
+  if (data.rtm_triggered) {
+    // RTM was triggered mid-set — show toast and reload (RTM banner will appear)
+    toast('RTM Triggered', (data.rtm_player||'Player') + ' — ' + (data.rtm_team||'?') + ' can exercise RTM. Resolve RTM then close set again.', 'rtm');
+    await Promise.all([loadAuctionState(), loadTeams()]);
+    await updateStats(); renderSetLauncher();
+    return;
+  }
+
   toast('Set Complete', data.sold + ' sold, ' + data.unsold + ' unsold', 'success');
   clearInterval(adminSetTimerInterval);
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
