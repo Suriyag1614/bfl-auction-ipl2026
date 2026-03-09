@@ -714,8 +714,9 @@ async function cancelLiveAuction() {
     bid_timer_end: null,
     rtm_pending: false,
     rtm_team_id: null,
+    last_action_at: new Date().toISOString(),
   }).eq('id', 1);
-  if (error) return showError('Cancel failed: ' + error.message);
+  if (error) { console.error('[Cancel] auction_state update failed:', error); return showError('Cancel failed: ' + error.message); }
   toast('Auction Cancelled', playerName + ' returned to Available — purse refunded', 'warn');
   await Promise.all([loadAuctionState(), loadPlayers(), loadTeams()]);
   renderPlayerList();
@@ -736,21 +737,53 @@ async function forceSell() {
   clearError(); clearAutoSell();
   const btn = el('force-sell-btn');
   if (btn) { if (btn._inFlight) return; btn._inFlight = true; btn.disabled = true; btn.textContent = '…'; }
-  // The server reads fresh state from DB and validates everything — just call it directly.
-  // Any validation error (no bid, not live, squad full, RTM) will be returned by the server.
+
   const { data, error } = await sb.rpc('force_sell');
+
   if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = 'Force Sell'; }
+
+  // Compatibility with OLD DB (pre-migration-31): force_sell returns error when no bids.
+  // Detect that specific message and auto-call markUnsold instead.
+  const errMsg = error?.message || data?.error || '';
+  if (!data?.success && errMsg.toLowerCase().includes('no bids')) {
+    return markUnsoldDirectly();
+  }
   if (error) return showError(error.message);
   if (!data?.success) return showError(data?.error || 'Error');
+
   const result = data.result || data.message;
   toast(
-    result === 'unsold'     ? 'Marked Unsold'       :
-    result === 'rtm_pending'? 'RTM Available'       : 'Sold',
-    result === 'unsold'     ? 'No bids received — player marked unsold' :
-    result === 'rtm_pending'? data.rtm_team + ' can exercise RTM' :
-                              'Player successfully sold',
-    result === 'unsold'     ? 'warn' : result === 'rtm_pending' ? 'rtm' : 'success'
+    result === 'unsold'      ? 'Marked Unsold'                         :
+    result === 'rtm_pending' ? 'RTM Available'                         : 'Sold',
+    result === 'unsold'      ? 'No bids received — player marked unsold' :
+    result === 'rtm_pending' ? (data.rtm_team || '?') + ' can exercise RTM' :
+                               'Player successfully sold',
+    result === 'unsold' ? 'warn' : result === 'rtm_pending' ? 'rtm' : 'success'
   );
+  await Promise.all([loadPlayers(), loadAuctionState(), loadTeams(), loadHistory()]);
+  await updateStats();
+}
+
+// Fallback for old DB: directly mark current player unsold without needing new RPC
+async function markUnsoldDirectly() {
+  const cs = currentState;
+  if (!cs?.current_player_id || cs.status !== 'live') return showError('No active player');
+  const pid = cs.current_player_id;
+  // Insert into unsold_log
+  await sb.from('unsold_log').upsert({ player_id: pid, logged_at: new Date().toISOString() }, { onConflict: 'player_id' });
+  // Update auction_state
+  const { error } = await sb.from('auction_state').update({
+    status: 'waiting', current_player_id: null,
+    current_highest_bid: 0, current_highest_team_id: null,
+    second_highest_bid: 0, second_highest_team_id: null,
+    bid_timer_end: null, rtm_pending: false, rtm_team_id: null,
+    last_player_id: pid, last_player_result: 'unsold',
+    last_sold_price: null, last_sold_to_team: null,
+    last_action_at: new Date().toISOString(),
+    unsold_player_ids: [...(cs.unsold_player_ids || []), pid]
+  }).eq('id', 1);
+  if (error) return showError('Mark unsold failed: ' + error.message);
+  toast('Marked Unsold', 'No bids received — player marked unsold', 'warn');
   await Promise.all([loadPlayers(), loadAuctionState(), loadTeams(), loadHistory()]);
   await updateStats();
 }
@@ -1273,16 +1306,18 @@ function startTimer(endTime) {
       stopTimer();
       const graceSec = Number(currentState?.autopilot_delay_seconds
                             ?? currentState?.autopilot_delay ?? 12);
+      // Client always auto-sells after grace period (admin is logged in = auto-sell works).
+      // Show warning countdown, then forceSell (which handles both bid and no-bid cases).
+      showAutoSellWarning(graceSec);
+      autoSellTimer = setTimeout(async () => {
+        hideAutoSellWarning();
+        if (currentState?.status === 'live' && !currentState?.rtm_pending) {
+          await forceSell();
+        }
+      }, graceSec * 1000);
+      // ALSO: if server autopilot flag is on, fire tick_auction in parallel as extra guarantee
       if (autopilotEnabled) {
-        // ── Autopilot ON: fire tick_auction after grace, then poll every 5s ──
-        autoSellTimer = setTimeout(() => startAutopilotPoll(), graceSec * 1000);
-      } else {
-        // ── Autopilot OFF: show countdown warning, then poll until sold ──
-        showAutoSellWarning(graceSec);
-        autoSellTimer = setTimeout(async () => {
-          hideAutoSellWarning();
-          if (currentState?.status === 'live' && !currentState?.rtm_pending) await forceSell();
-        }, graceSec * 1000);
+        setTimeout(() => startAutopilotPoll(), graceSec * 1000);
       }
     }
   }
@@ -2424,6 +2459,10 @@ function renderLiveSetPanel() {
       t.className = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
       if (rem <= 0) clearInterval(adminSetTimerInterval);
     }, 250);
+    // Start autopilot watcher on every render if not already scheduled
+    if (!_setAutopilotTimer && !_setAutopilotPollId) {
+      startSetAutopilotWatcher(endMs);
+    }
   }
 
   const initRem      = _setIsPaused ? 0 : Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
@@ -2563,6 +2602,10 @@ async function togglePauseSet() {
       await loadSetSlots(setName);
       const tab = document.getElementById('tab-sets');
       if (tab?.classList.contains('active')) await renderSetLauncher();
+      // Restart autopilot watcher with new end times from resumed slots
+      const _S = new Date('9000-01-01').getTime();
+      const realEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < _S);
+      if (realEnds.length) startSetAutopilotWatcher(Math.max(...realEnds));
     }
     toast('Set Resumed', 'Timers restored — bidding is live again', 'success');
   }
@@ -2586,26 +2629,51 @@ function startSetAutopilotWatcher(endMs) {
   const msUntilGrace = Math.max(0, (endMs - serverNow())) + graceSec * 1000;
 
   _setAutopilotTimer = setTimeout(() => {
-    // Fire once immediately, then poll every 5s until all slots close
+    // Admin always auto-closes set after grace period.
+    // Try tick_auction first (handles individual slots), fall back to closeSetAuction.
     async function attempt() {
       if (currentState?.status !== 'set_live') {
         clearInterval(_setAutopilotPollId); _setAutopilotPollId = null; return;
       }
-      if (autopilotEnabled) {
-        const { error } = await sb.rpc('tick_auction');
-        if (error) console.warn('[SetAutopilotPoll]', error.message);
-      }
+      console.log('[SetAutopilot] Attempting auto-close…');
+      // Try tick_auction to close expired slots atomically
+      const { data: td, error: te } = await sb.rpc('tick_auction');
+      if (te) console.warn('[SetAutopilot] tick_auction error:', te.message);
+      else console.log('[SetAutopilot] tick_auction result:', td);
+
       await loadAuctionState();
       const setName = currentState?.current_set_name;
       if (setName) await loadSetSlots(setName);
-      const tab = el('tab-sets');
-      if (tab?.classList.contains('active')) await renderSetLauncher();
+
+      // If all slots are closed by tick_auction, auction_state moves to 'waiting'
       if (currentState?.status !== 'set_live') {
         clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
+        const tab = el('tab-sets');
+        if (tab?.classList.contains('active')) await renderSetLauncher();
+        toast('Set Auto-Closed', 'All players sold/unsold by autopilot', 'success');
+        await Promise.all([loadPlayers(), loadTeams(), loadHistory()]);
+        await updateStats();
+        return;
       }
+      // If tick_auction didn't close everything (old DB or grace mismatch), use closeSetAuction RPC
+      const sn = currentState?.current_set_name;
+      if (sn) {
+        const { data: cd, error: ce } = await sb.rpc('close_set_auction', { p_set_name: sn });
+        if (!ce && cd?.success) {
+          clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
+          clearInterval(adminSetTimerInterval); _setIsPaused = false;
+          if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
+          activeSetSlots = [];
+          toast('Set Auto-Closed', (cd.sold||0) + ' sold, ' + (cd.unsold||0) + ' unsold', 'success');
+          await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]);
+          await updateStats(); await renderSetLauncher();
+          return;
+        }
+      }
+      // Still live — retry in 3s
     }
     attempt();
-    _setAutopilotPollId = setInterval(attempt, 5000);
+    _setAutopilotPollId = setInterval(attempt, 3000);
   }, msUntilGrace);
 }
 
