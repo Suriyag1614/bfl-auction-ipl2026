@@ -1436,13 +1436,13 @@ function buildSlotCardHTML(slot) {
 
   // Bid area
   const bidArea = isMe
-    ? `<div class="sc-bid-action" id="sa-${slot.id}">
+    ? `<div class="sc-bid-action sc-bid-action--leading" id="sa-${slot.id}">
          <div class="sc-winning">
            <span class="sc-winning-icon">✓</span>
            <span class="sc-winning-label">Leading</span>
            <span class="sc-winning-amt">${fmt(slot.current_highest_bid)}</span>
          </div>
-         <button class="btn btn-ghost btn-sm sc-undo-btn" onclick="undoSetBid('${slot.id}')">↩</button>
+         <button class="btn btn-ghost btn-sm sc-undo-btn" onclick="undoSetBid('${slot.id}')">↩ Undo</button>
        </div>`
     : `<div class="sc-bid-action" id="sa-${slot.id}">
          <input type="number" class="form-input sc-bid-input" id="sbid-${slot.id}"
@@ -1544,7 +1544,7 @@ function patchSlotCard(slot) {
   if (sa) {
     if (isMe) {
       // Team is leading this slot — always show Leading state + undo button
-      sa.innerHTML = `<div class="sc-bid-action"><div class="sc-winning"><span class="sc-winning-icon">✓</span><span class="sc-winning-label">Leading</span><span class="sc-winning-amt">${fmt(slot.current_highest_bid)}</span></div><button class="btn btn-ghost btn-sm sc-undo-btn" onclick="undoSetBid('${slot.id}')">↩</button></div>`;
+      sa.innerHTML = `<div class="sc-bid-action sc-bid-action--leading"><div class="sc-winning"><span class="sc-winning-icon">✓</span><span class="sc-winning-label">Leading</span><span class="sc-winning-amt">${fmt(slot.current_highest_bid)}</span></div><button class="btn btn-ghost btn-sm sc-undo-btn" onclick="undoSetBid('${slot.id}')">↩ Undo</button></div>`;
     } else {
       // Not leading — show bid input, preserve typed value if user is actively typing
       const existing = document.getElementById('sbid-'+slot.id);
