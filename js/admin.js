@@ -24,6 +24,7 @@ let auctionHistory = [];
 let squadRows      = [];
 let realtimeChannel  = null;
 let autopilotEnabled = false;
+let _dayAutopilotTimer = null; // fires tick_auction when day_end is reached
 let activeSetSlots   = [];
 let setSlotChannel   = null;
 let adminPollInterval = null;
@@ -469,6 +470,27 @@ async function pollAdminState() {
         const SENTINEL_MS2 = new Date('9000-01-01').getTime();
         const rEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < SENTINEL_MS2);
         if (rEnds.length) startSetAutopilotWatcher(Math.max(...rEnds));
+      }
+    }
+
+    // Day-level autopilot: when waiting + day ended → tick to start RTM window
+    // Also: when RTM window active → tick to auto-decline expired decisions
+    if (state.status === 'waiting' || state.rtm_window_active) {
+      const dayEndMs = state.day_end ? new Date(state.day_end).getTime() : null;
+      const rtmEndMs = state.rtm_window_end ? new Date(state.rtm_window_end).getTime() : null;
+      const n = serverNow();
+      const shouldTickRTM =
+        (dayEndMs && n >= dayEndMs && rtmEndMs && n < rtmEndMs) || // window due
+        !!state.rtm_window_active;                                   // window open
+      if (shouldTickRTM && !_setAutopilotPollId && !_setAutopilotTimer) {
+        // Schedule a tick at the right time
+        const msUntilTick = dayEndMs ? Math.max(0, dayEndMs - n) : 0;
+        clearTimeout(_dayAutopilotTimer);
+        _dayAutopilotTimer = setTimeout(async () => {
+          const { error } = await sb.rpc('tick_auction');
+          if (error) console.warn('[DayAutopilot] tick error:', error.message);
+          await loadAuctionState();
+        }, msUntilTick + 500); // 500ms buffer after day_end
       }
     }
 
@@ -1498,6 +1520,7 @@ function stopTimer()     { clearInterval(timerInterval); timerInterval = null; }
 function clearAutoSell() {
   clearTimeout(autoSellTimer); autoSellTimer = null;
   clearInterval(_autopilotPollId); _autopilotPollId = null;
+  clearTimeout(_dayAutopilotTimer); _dayAutopilotTimer = null;
   hideAutoSellWarning();
 }
 
@@ -2809,14 +2832,48 @@ function startSetAutopilotWatcher(endMs) {
   const msUntilGrace = Math.max(0, (endMs - serverNow())) + graceSec * 1000;
 
   _setAutopilotTimer = setTimeout(() => {
-    // Admin always auto-closes set after grace period.
-    // Try tick_auction first (handles individual slots), fall back to closeSetAuction.
     async function attempt() {
-      if (currentState?.status !== 'set_live') {
+      const status = currentState?.status;
+
+      // ── After set closes, handle RTM window transition ──────────────
+      // Case: day ended, set is closed (waiting), RTM window due but not started
+      if (status === 'waiting') {
+        const dayEndMs = currentState?.day_end ? new Date(currentState.day_end).getTime() : null;
+        const rtmEndMs = currentState?.rtm_window_end ? new Date(currentState.rtm_window_end).getTime() : null;
+        const n = serverNow();
+        if (dayEndMs && n >= dayEndMs && rtmEndMs && n < rtmEndMs && !currentState?.rtm_window_active) {
+          dbg('[SetAutopilot] Day ended, starting RTM window…');
+          const { data: td } = await sb.rpc('tick_auction');
+          dbg('[SetAutopilot] tick_auction (RTM start) result:', td);
+          await loadAuctionState();
+          clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
+          if (currentState?.rtm_window_active) {
+            toast('RTM Window Started', 'End-of-day RTM window is now open', 'success');
+          }
+          return;
+        }
+        // RTM window active — tick to auto-decline expired rows and close window
+        if (currentState?.rtm_window_active) {
+          const { data: td } = await sb.rpc('tick_auction');
+          dbg('[SetAutopilot] tick_auction (RTM window) result:', td);
+          await loadAuctionState();
+          if (!currentState?.rtm_window_active) {
+            clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
+            toast('RTM Window Closed', 'All RTM decisions resolved', 'success');
+            await Promise.all([loadTeams(), loadPlayers(), loadHistory()]);
+            await updateStats();
+          }
+          return;
+        }
+        clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
+        return;
+      }
+
+      if (status !== 'set_live') {
         clearInterval(_setAutopilotPollId); _setAutopilotPollId = null; return;
       }
+
       dbg('[SetAutopilot] Attempting auto-close…');
-      // Try tick_auction to close expired slots atomically
       const { data: td, error: te } = await sb.rpc('tick_auction');
       if (te) console.warn('[SetAutopilot] tick_auction error:', te.message);
       else dbg('[SetAutopilot] tick_auction result:', td);
@@ -2825,28 +2882,48 @@ function startSetAutopilotWatcher(endMs) {
       const setName = currentState?.current_set_name;
       if (setName) await loadSetSlots(setName);
 
-      // If all slots are closed by tick_auction, auction_state moves to 'waiting'
       if (currentState?.status !== 'set_live') {
-        clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
+        // Set closed — check if RTM window should now start
+        const dayEndMs = currentState?.day_end ? new Date(currentState.day_end).getTime() : null;
+        const rtmEndMs = currentState?.rtm_window_end ? new Date(currentState.rtm_window_end).getTime() : null;
+        const n = serverNow();
+        const rtmDue = dayEndMs && n >= dayEndMs && rtmEndMs && n < rtmEndMs && !currentState?.rtm_window_active;
+
         const tab = el('tab-sets');
         if (tab?.classList.contains('active')) await renderSetLauncher();
         toast('Set Auto-Closed', 'All players sold/unsold by autopilot', 'success');
         await Promise.all([loadPlayers(), loadTeams(), loadHistory()]);
         await updateStats();
+
+        if (rtmDue) {
+          // Immediately tick to start RTM window (don't wait for next poll)
+          dbg('[SetAutopilot] Set closed, day ended — starting RTM window…');
+          const { data: rtmData } = await sb.rpc('tick_auction');
+          dbg('[SetAutopilot] RTM window tick result:', rtmData);
+          await loadAuctionState();
+          if (currentState?.rtm_window_active) {
+            toast('RTM Window Started', 'End-of-day RTM window is now open', 'success');
+            // Keep polling to handle RTM window expiry auto-close
+            return; // continue polling
+          }
+        }
+
+        clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
         return;
       }
-      // If tick_auction didn't close everything (old DB or grace mismatch), use closeSetAuction RPC
+
+      // If tick_auction didn't close everything, use closeSetAuction RPC directly
       const sn = currentState?.current_set_name;
       if (sn) {
         const { data: cd, error: ce } = await sb.rpc('close_set_auction', { p_set_name: sn });
         if (!ce && cd?.success) {
-          clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
           clearInterval(adminSetTimerInterval); _setIsPaused = false;
           if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
           activeSetSlots = [];
           toast('Set Auto-Closed', (cd.sold||0) + ' sold, ' + (cd.unsold||0) + ' unsold', 'success');
           await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]);
           await updateStats(); await renderSetLauncher();
+          clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
           return;
         }
       }
@@ -2856,7 +2933,6 @@ function startSetAutopilotWatcher(endMs) {
     _setAutopilotPollId = setInterval(attempt, 3000);
   }, msUntilGrace);
 }
-
 function subscribeSetSlots(setName) {
   if (setSlotChannel) sb.removeChannel(setSlotChannel);
   setSlotChannel = sb.channel('set-slots-' + setName)
