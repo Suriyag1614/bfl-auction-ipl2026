@@ -1682,7 +1682,7 @@ function renderAllTeams() {
           <span style="font-family:'Barlow Condensed',sans-serif;font-weight:${isMe?'800':'700'};font-size:14px;">${t.team_name}</span>
           ${t.is_advantage_holder?'<span class="tag tag-advantage" style="font-size:9px;padding:1px 4px;">⭐</span>':''}
           ${rtmRem>0?`<span class="tag tag-rtm" style="font-size:9px;padding:1px 4px;">RTM×${rtmRem}</span>`:''}
-          ${isMe?'<span style="font-size:10px;color:var(--gold);font-style:italic;">(you)</span>':''}
+          ${isMe?'<span style="font-size:10px;color:var(--gold);font-style:italic;">(You)</span>':''}
         </div>
         <div class="presence-lbl ${pres.cls}">${pres.text}</div>
       </td>
