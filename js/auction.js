@@ -511,7 +511,15 @@ async function applyState(state) {
   // ── Day window ended banner (shown while waiting / between sets) ──
   _renderDayWindowBanner(state);
 
-  if (state.rtm_pending) {
+  if (state.rtm_window_active) {
+    // ── PARALLEL RTM WINDOW: show all pending decisions for this team ──
+    stopTimer(); stopSetTimer();
+    hide('player-card'); hide('no-auction'); hide('set-auction-view');
+    // renderRTMPending only if there's a legacy rtm_pending (single-player auction RTM)
+    // In window mode, use the parallel decisions renderer
+    await renderRTMWindowDecisions(state);
+
+  } else if (state.rtm_pending) {
     stopTimer(); stopSetTimer();
     hide('player-card'); hide('no-auction'); hide('set-auction-view');
     renderRTMPending(state);
@@ -1063,7 +1071,201 @@ function _renderDayWindowBanner(state) {
 }
 let _dwbInterval = null;
 
-// ── RTM pending screen ────────────────────────────────────────
+// ── RTM Window: parallel decisions (one card per eligible player) ─────
+let _rtmWindowInterval = null;
+let _rtmWindowDecisionHash = '';
+
+async function renderRTMWindowDecisions(state) {
+  const cont = el('rtm-pending'); if (!cont) return;
+  show('rtm-pending');
+
+  // Guard: auction_day must be set or we can't query the right decisions
+  if (!state.auction_day) {
+    cont.innerHTML = `<div class="rtm-banner" style="text-align:center;">
+      <div class="rtm-icon">RTM</div>
+      <div class="rtm-title">RTM WINDOW</div>
+      <div style="color:var(--red);font-size:13px;margin-top:8px;">Day not configured — admin must set Day Number in Day Settings.</div>
+    </div>`;
+    return;
+  }
+
+  // Fetch all pending decisions for this day
+  const { data: decisions, error } = await sb.from('rtm_decisions')
+    .select(`*,
+      player:players_master!rtm_decisions_player_id_fkey(id,name,role,ipl_team,image_url,is_overseas,is_uncapped,bfl_avg,country,prev_bfl_team),
+      rtm_team:teams!rtm_decisions_rtm_team_id_fkey(id,team_name),
+      buyer:teams!rtm_decisions_buyer_team_id_fkey(id,team_name)`)
+    .eq('auction_day', state.auction_day)
+    .order('created_at', { ascending: true });
+
+  if (error || !decisions?.length) {
+    cont.innerHTML = `<div class="rtm-banner" style="text-align:center;">
+      <div class="rtm-icon">RTM</div>
+      <div class="rtm-title">RTM WINDOW</div>
+      <div style="color:var(--muted);font-size:13px;margin-top:8px;">No RTM decisions pending.</div>
+    </div>`;
+    clearInterval(_rtmWindowInterval); _rtmWindowInterval = null;
+    return;
+  }
+
+  const newHash = decisions.map(d => d.id + d.decision + d.decided_at).join('|');
+  if (newHash === _rtmWindowDecisionHash && cont.innerHTML !== '') {
+    // Only re-render countdown ticks (update time elements in-place)
+    _tickRTMWindowCountdowns(decisions);
+    return;
+  }
+  _rtmWindowDecisionHash = newHash;
+
+  const myTeamId = myTeam?.id;
+  const pendingCount = decisions.filter(d => d.decision === 'pending').length;
+
+  cont.innerHTML = `
+    <div class="rtm-window-wrap">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+        <div class="rtm-icon">RTM</div>
+        <div>
+          <div class="rtm-title" style="font-size:18px;">RTM WINDOW</div>
+          <div style="font-size:12px;color:var(--muted);">${pendingCount} pending · ${decisions.length} total today</div>
+        </div>
+      </div>
+      <div class="rtm-window-cards">
+        ${decisions.map(d => _rtmDecisionCard(d, myTeamId)).join('')}
+      </div>
+    </div>`;
+
+  // Start countdown tick if any pending
+  clearInterval(_rtmWindowInterval); _rtmWindowInterval = null;
+  if (pendingCount > 0) {
+    _rtmWindowInterval = setInterval(() => _tickRTMWindowCountdowns(decisions), 500);
+    if (!_rtmAlerted && decisions.some(d => d.rtm_team?.id === myTeamId && d.decision === 'pending')) {
+      _rtmAlerted = true; playRTMAlert();
+      document.body.style.transition = 'background 0.2s';
+      document.body.style.background = 'rgba(240,180,41,0.15)';
+      setTimeout(() => { document.body.style.background = ''; }, 800);
+    }
+  }
+}
+
+function _rtmDecisionCard(d, myTeamId) {
+  const isMyRTM  = d.rtm_team?.id === myTeamId;
+  const deadlineMs = d.deadline ? new Date(d.deadline).getTime() : null;
+  const remSec   = deadlineMs ? Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000)) : null;
+  const remStr   = remSec != null ? _fmtCountdown(remSec) : '—';
+  const p        = d.player;
+  const price    = fmt(d.match_price);
+
+  const statusBadge =
+    d.decision === 'accepted' ? `<span class="tag tag-sold" style="font-size:10px;">✓ RTM Accepted</span>` :
+    d.decision === 'declined' ? `<span class="tag tag-unsold" style="font-size:10px;">✗ Declined</span>` :
+    isMyRTM                   ? `<span class="tag tag-rtm" style="font-size:10px;">Your Decision</span>` :
+                                `<span style="font-size:10px;color:var(--muted);">Pending…</span>`;
+
+  const timerEl = d.decision === 'pending' && deadlineMs
+    ? `<div id="rtw-cd-${d.id}" class="rtm-window-cd${remSec <= 10 ? ' rtm-cd-urgent' : ''}">${remStr}</div>`
+    : '';
+
+  const actionBtns = isMyRTM && d.decision === 'pending' ? `
+    <div class="rtm-actions" style="margin-top:10px;">
+      <button class="btn btn-gold rtm-hold-btn" id="rtw-accept-${d.id}"
+        onmousedown="startRTWHold('${d.id}',true)" ontouchstart="startRTWHold('${d.id}',true)"
+        onmouseup="cancelRTWHold('${d.id}')"   ontouchend="cancelRTWHold('${d.id}')"
+        onmouseleave="cancelRTWHold('${d.id}')">
+        <span class="rtm-hold-fill" id="rtw-fill-${d.id}"></span>
+        Exercise RTM — Match ${price}
+      </button>
+      <button class="btn btn-ghost" onclick="exerciseRTWDecision('${d.id}',false)">Decline RTM</button>
+    </div>
+    <div class="rtm-hold-hint">Hold button 2s to confirm</div>` : '';
+
+  return `
+    <div class="rtm-window-card${isMyRTM && d.decision === 'pending' ? ' rtm-my-turn' : ''}${d.decision !== 'pending' ? ' rtm-card-resolved' : ''}">
+      <div style="display:flex;align-items:flex-start;gap:12px;">
+        <img src="${imgSrc(p?.image_url)}" onerror="this.onerror=null;this.style.display='none'" alt="" class="rtm-player-img" style="width:50px;height:50px;">
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+            <strong style="font-size:15px;font-family:'Barlow Condensed',sans-serif;">${_esc(p?.name||'—')}</strong>
+            ${statusBadge}
+            ${timerEl}
+          </div>
+          <div style="font-size:12px;color:var(--muted);">${p?.role||''} · ${p?.ipl_team||''}</div>
+          <div style="font-size:12px;margin-top:4px;">
+            <span style="color:var(--muted);">Winning bid:</span> <strong style="color:var(--gold);">${price}</strong>
+            <span style="color:var(--muted);margin-left:8px;">by ${_esc(d.buyer?.team_name||'—')}</span>
+          </div>
+          ${isMyRTM || d.decision !== 'pending'
+            ? `<div style="font-size:12px;margin-top:2px;color:${isMyRTM?'var(--gold)':'var(--muted)'};">
+                RTM team: <strong>${_esc(d.rtm_team?.team_name||'—')}</strong>
+               </div>` : ''}
+        </div>
+      </div>
+      ${actionBtns}
+    </div>`;
+}
+
+function _fmtCountdown(secs) {
+  if (secs <= 0) return '0s';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+  if (m > 0) return String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+  return s + 's';
+}
+
+function _tickRTMWindowCountdowns(decisions) {
+  decisions.forEach(d => {
+    if (d.decision !== 'pending') return;
+    const el2 = document.getElementById('rtw-cd-' + d.id); if (!el2) return;
+    const deadlineMs = d.deadline ? new Date(d.deadline).getTime() : null;
+    if (!deadlineMs) return;
+    const rem = Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000));
+    el2.textContent = _fmtCountdown(rem);
+    if (rem <= 10) el2.classList.add('rtm-cd-urgent');
+    else           el2.classList.remove('rtm-cd-urgent');
+  });
+}
+
+// Hold-to-confirm for RTM window decisions
+let _rtwHoldTimers = {};
+function startRTWHold(decisionId, accept) {
+  const fill = document.getElementById('rtw-fill-' + decisionId);
+  const btn  = document.getElementById('rtw-accept-' + decisionId);
+  if (!fill || !btn) { exerciseRTWDecision(decisionId, accept); return; }
+  btn.classList.add('holding');
+  _rtwHoldTimers[decisionId] = setTimeout(() => {
+    btn.classList.remove('holding');
+    exerciseRTWDecision(decisionId, accept);
+  }, 1800);
+}
+function cancelRTWHold(decisionId) {
+  clearTimeout(_rtwHoldTimers[decisionId]);
+  const btn = document.getElementById('rtw-accept-' + decisionId);
+  if (btn) btn.classList.remove('holding');
+}
+
+let _rtwInFlight = {};
+async function exerciseRTWDecision(decisionId, accept) {
+  if (_rtwInFlight[decisionId]) return;
+  _rtwInFlight[decisionId] = true;
+  const acceptBtn  = document.getElementById('rtw-accept-' + decisionId);
+  const card       = acceptBtn?.closest('.rtm-window-card');
+  if (card) card.querySelectorAll('.btn').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+
+  const { data, error } = await sb.rpc('exercise_rtm_decision', { p_decision_id: decisionId, p_accept: accept });
+  _rtwInFlight[decisionId] = false;
+
+  if (error || !data?.success) {
+    if (card) card.querySelectorAll('.btn').forEach(b => { b.disabled = false; b.style.opacity = ''; });
+    toast('RTM Error', error?.message || data?.error || 'RTM action failed', 'error'); return;
+  }
+  _rtmWindowDecisionHash = ''; // force re-render
+  toast(accept ? 'RTM Exercised ✓' : 'RTM Declined', accept
+    ? (data.player || 'Player') + ' retained at match price'
+    : 'Original buyer keeps the player', accept ? 'success' : 'info');
+  await fetchState();
+}
+
+// ── RTM pending screen (single-player live auction) ───────────────────
 function renderRTMPending(state) {
   const cont = el('rtm-pending'); if (!cont) return;
   show('rtm-pending');
@@ -1766,15 +1968,16 @@ function startSetTimer(endMs) {
   if (Math.abs(endMs - _setTimerEndMs) > 2000) {
     _setTimerEndMs    = endMs;
     const rawSec      = Math.ceil((endMs - serverNow()) / 1000);
-    _setTimerTotalSec = Math.max(1, Math.abs(rawSec) > 300 ? 60 : rawSec);
+    // Use actual remaining time — no artificial cap (timers can be hours for day windows)
+    _setTimerTotalSec = Math.max(1, rawSec > 0 ? rawSec : 60);
   }
   const totalSetSec = _setTimerTotalSec;
   function tick() {
     const rem     = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
     const expired = rem <= 0;
     const t   = el('set-timer'); if (!t) { stopSetTimer(); return; }
-    t.textContent = expired ? 'Ended' : rem + 's';
-    t.className   = 'timer' + (expired ? ' timer-ended' : rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
+    t.textContent = expired ? 'Ended' : _fmtCountdown(rem);
+    t.className   = 'timer' + (expired ? ' timer-ended' : rem <= 30 ? ' timer-critical' : rem <= 60 ? ' timer-warning' : '');
     const pct    = Math.max(0, Math.min(100, (rem / totalSetSec) * 100));
     const setBar = el('set-timer-bar');
     if (setBar) {
@@ -2436,10 +2639,26 @@ function subscribeRealtime() {
       }
     })
     .on('postgres_changes', { event:'UPDATE', schema:'public', table:'teams' }, () => { dbt('allTeams', loadAllTeams, 800); })
-    .on('postgres_changes', { event:'*', schema:'public', table:'team_players' }, () => {
+    .on('postgres_changes', { event:'*', schema:'public', table:'team_players' }, payload => {
+      // Fix 29: if a DELETE removes a player from MY squad, it was RTM'd away — notify
+      if (payload.eventType === 'DELETE' && currentState?.rtm_window_active) {
+        const old = payload.old;
+        if (old?.team_id === myTeam?.id) {
+          const playerName = allPlayers?.find?.(p => p.id === old.player_id)?.name || 'A player';
+          toast('RTM Alert', playerName + ' was RTM\'d away from your squad', 'warn');
+          updatePurseDisplay();
+        }
+      }
       loadSquad(); loadStats(); loadAllTeams();
     })
     .on('postgres_changes', { event:'INSERT', schema:'public', table:'unsold_log' }, () => { loadStats(); })
+    // RTM window: live updates when any decision is inserted or updated
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'rtm_decisions' }, () => {
+      _rtmWindowDecisionHash = ''; fetchState();
+    })
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'rtm_decisions' }, () => {
+      _rtmWindowDecisionHash = ''; fetchState();
+    })
     .on('system', {}, p => {
       if (p.status === 'SUBSCRIBED') {
         setConnState('connected');

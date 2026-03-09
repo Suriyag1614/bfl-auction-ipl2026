@@ -14,7 +14,7 @@
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{scroll-behavior:smooth;}
-body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font-size:15px;line-height:1.2;min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden;padding-bottom:env(safe-area-inset-bottom,0px);}
+body{background:var(--bg);color:var(--text);font-family:'Barlow',sans-serif;font-size:15px;line-height:1.6;min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden;padding-bottom:env(safe-area-inset-bottom,0px);}
 img{display:block;max-width:100%;}
 ::selection{background:var(--gold-glow);}
 
@@ -84,7 +84,9 @@ img{display:block;max-width:100%;}
 /* Navbar */
 .navbar{background:rgba(10,12,16,0.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:2px solid var(--gold);padding:0 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:200;min-height:var(--navbar-h);flex-wrap:wrap;transition:box-shadow var(--t);}
 .navbar.scrolled{box-shadow:0 4px 24px rgba(0,0,0,0.5);}
-.navbar-logo{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;letter-spacing:2px;color:#f0b429;text-transform:uppercase;white-space:nowrap;text-shadow:0 0 24px rgba(240,180,41,0.4);transition:text-shadow 0.3s;flex-shrink:0;}
+.navbar-logo{display:flex;align-items:center;flex-shrink:0;}
+.navbar-logo-img{height:32px;width:auto;object-fit:contain;filter:drop-shadow(0 0 8px rgba(240,180,41,0.5));transition:filter 0.3s;}
+.navbar-logo-img:hover{filter:drop-shadow(0 0 16px rgba(240,180,41,0.8));}
 .navbar-logo:hover{text-shadow:0 0 36px rgba(240,180,41,0.6);}
 .navbar-info{font-size:13px;color:var(--muted);white-space:nowrap;flex-shrink:0;}
 .navbar-info strong{color:var(--text);}
@@ -259,7 +261,7 @@ select.form-input{cursor:pointer;}
 /* ═══════════════════════════════════════════════════════
    AUCTION — TEAM VIEW
 ═══════════════════════════════════════════════════════ */
-.auction-grid{display:grid;grid-template-columns:1fr 0.4px;gap:20px;padding:16px 0;min-width:0;}
+.auction-grid{display:grid;grid-template-columns:1fr 0.4fr;gap:20px;padding:16px 0;min-width:0;}
 .auction-grid > *{min-width:0;}
 /* Sidebar: don't use overflow:hidden — it breaks sticky headers inside */
 .squad-sidebar{min-width:0;}
@@ -759,7 +761,7 @@ select.form-input{cursor:pointer;}
 @media (max-width: 620px) {
   :root{--navbar-h:50px;}
   .navbar{padding:0 12px;gap:6px;}
-  .navbar-logo{font-size:18px;letter-spacing:1px;}
+  .navbar-logo-img{height:26px;}
   .navbar-info{display:none;}
   .purse-display{font-size:15px;padding:3px 10px;}
   .navbar-right{gap:6px;}
@@ -795,11 +797,17 @@ select.form-input{cursor:pointer;}
   .card-title{font-size:15px;}
   .adv-card-body{flex-direction:column;gap:12px;}
   .adv-card-stats-grid{grid-template-columns:repeat(3,1fr);}
+  /* Fix 14: set panel button group — stack neatly at 620px */
+  .set-live-btn-group{flex-wrap:wrap;gap:5px;}
+  .set-live-btn-group .btn,.set-live-btn-group .btn-cancel-set{font-size:11px;padding:4px 9px;}
+  /* Fix 17: RTM window active message clips at 375px → use fluid font */
+  #no-auction-msg{font-size:clamp(11px,3.5vw,14px);}
   /* Absorbed from former 700px breakpoint: */
   .squad-sidebar{width:100%;}
   .squad-table-wrap{max-height:240px;}
   .bid-area{padding:10px;}
-  .navbar-logo{display:none;}
+  /* Fix 18: keep logo visible until very narrow — hide moved to 360px below */
+  .navbar-logo{display:flex;}
   .navbar-info{flex:1;}
 }
 @media (max-width: 400px) {
@@ -816,6 +824,24 @@ select.form-input{cursor:pointer;}
   .tabs{gap:0;}
   .tab-btn{padding:8px 9px;font-size:11px;}
   .adv-card-stats-grid{grid-template-columns:repeat(2,1fr);}
+}
+/* Fix 18: hide logo only on truly tiny screens */
+@media (max-width: 360px) {
+  .navbar-logo{display:none;}
+}
+/* Fix 16: day window banner — ensure it sits below sticky navbar, not behind it */
+.day-window-banner-wrap {
+  position: sticky;
+  top: var(--navbar-h, 56px);
+  z-index: 90; /* below navbar (z-index 100) */
+}
+/* Fix 19: prefers-reduced-motion — stop all decorative animations */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Autopilot delay input */
@@ -1208,6 +1234,7 @@ select.form-input{cursor:pointer;}
 .rtm-hold-btn {
   position: relative; overflow: hidden; cursor: pointer;
   user-select: none; -webkit-user-select: none;
+  touch-action: none; -webkit-tap-highlight-color: transparent;
 }
 .rtm-hold-btn .rtm-hold-fill {
   position: absolute; left: 0; top: 0; bottom: 0;
@@ -1407,15 +1434,6 @@ select.form-input{cursor:pointer;}
 }
 
 /* ── Navbar BFL logo — pure text mark ── */
-.navbar-logo {
-  font-family: 'Barlow Condensed', sans-serif !important;
-  font-size: 22px !important;
-  font-weight: 900 !important;
-  letter-spacing: 2px;
-  color: var(--gold) !important;
-  text-transform: uppercase;
-}
-
 /* ── Role pool chip labels (now text WK/BAT/BOWL/AR) ── */
 
 
@@ -2386,4 +2404,182 @@ input[type="number"].dm-input { width: 90px; flex: none; }
   .day-window-bar { gap: 8px; padding: 6px 12px; }
   .dwb-label { min-width: 70px; font-size: 8px; }
   .dwb-time  { font-size: 12px; min-width: 60px; }
+}
+
+/* ── Parallel RTM Window cards ────────────────────────────────── */
+.rtm-window-wrap { padding: 4px 0; }
+.rtm-window-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px; /* prevent scrollbar from clipping border */
+}
+.rtm-window-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.rtm-window-card.rtm-my-turn {
+  border-color: rgba(240,180,41,0.5);
+  background: rgba(240,180,41,0.05);
+}
+.rtm-window-card.rtm-card-resolved {
+  border-color: rgba(255,255,255,0.06);
+}
+.rtm-window-card.rtm-card-resolved strong,
+.rtm-window-card.rtm-card-resolved div {
+  color: var(--muted);
+}
+.rtm-window-cd {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--gold);
+  background: rgba(240,180,41,0.1);
+  border-radius: 4px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+.rtm-window-cd.rtm-cd-urgent {
+  color: var(--red);
+  background: rgba(229,62,62,0.1);
+  animation: blink 0.7s ease-in-out infinite;
+}
+
+/* ── Team RTM Window Cards (parallel) ─────────────────────────── */
+.rtm-window-card {
+  background: linear-gradient(135deg, rgba(139,92,246,0.12), rgba(0,0,0,0.3));
+  border: 1px solid rgba(139,92,246,0.35);
+  border-radius: 12px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  animation: fadeInUp 0.3s ease both;
+}
+.rtwc-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(139,92,246,0.18);
+  border-bottom: 1px solid rgba(139,92,246,0.25);
+}
+.rtwc-icon {
+  background: linear-gradient(135deg,#7c3aed,#a855f7);
+  color: #fff;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.rtwc-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 1.5px;
+  color: #c4b5fd;
+  flex: 1;
+}
+.rtwc-timer {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 22px;
+  color: var(--gold);
+  min-width: 60px;
+  text-align: right;
+}
+.rtwc-body {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  align-items: flex-start;
+}
+.rtwc-img {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 2px solid rgba(139,92,246,0.4);
+  flex-shrink: 0;
+}
+.rtwc-info { flex: 1; min-width: 0; }
+.rtwc-player-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--text1);
+  margin-bottom: 3px;
+}
+.rtwc-player-sub { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+.rtwc-price { font-size: 14px; color: var(--text2); margin-bottom: 3px; }
+.rtwc-buyer { font-size: 12px; color: var(--muted); }
+.rtwc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+.rtwc-hold-btn { position: relative; overflow: hidden; }
+
+/* Resolved list */
+.rtwc-resolved-list {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.rtwc-resolved-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--text2);
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.rtwc-resolved-row:last-child { border-bottom: none; }
+.rtwc-badge-accepted {
+  font-size: 10px; font-weight: 800; letter-spacing: 1px;
+  color: var(--green); background: rgba(72,187,120,0.15);
+  border-radius: 4px; padding: 2px 8px;
+}
+.rtwc-badge-declined {
+  font-size: 10px; font-weight: 800; letter-spacing: 1px;
+  color: var(--muted); background: rgba(255,255,255,0.05);
+  border-radius: 4px; padding: 2px 8px;
+}
+
+/* Admin RTM decisions */
+.rtm-decision-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.rtm-decision-row:last-child { border-bottom: none; }
+.rtmd-player { font-size: 13px; color: var(--text1); }
+.rtmd-info { display: flex; flex-direction: column; gap: 2px; text-align: right; }
+.rtmd-team { font-size: 12px; font-weight: 700; color: #c4b5fd; }
+.rtmd-price { font-size: 13px; font-weight: 800; color: var(--gold); }
+.rtmd-actions { display: flex; gap: 6px; }
+.rtmd-resolved {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; color: var(--text2); padding: 4px 0;
+}
+.rtmd-badge-accepted { color: var(--green); font-weight: 800; font-size: 10px; letter-spacing: 1px; }
+.rtmd-badge-declined { color: var(--muted);  font-weight: 800; font-size: 10px; letter-spacing: 1px; }
+
+@media (max-width: 480px) {
+  .rtwc-body { flex-direction: column; }
+  .rtwc-img  { width: 56px; height: 56px; }
+  .rtm-decision-row { grid-template-columns: 1fr; }
+  .rtmd-info { text-align: left; }
 }

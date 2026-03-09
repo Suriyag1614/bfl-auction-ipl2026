@@ -14,7 +14,8 @@
     @keyframes bar-fill     { from{width:0} to{width:100%} }
     @keyframes cfetti       { 0%{opacity:1;transform:translateY(-10px) rotate(0)} 100%{opacity:0;transform:translateY(70px) rotate(540deg)} }
     .bfl-emoji   { font-size:64px; display:block; line-height:1; text-align:center; margin-bottom:6px; animation:float-emoji 2.5s ease infinite; }
-    .bfl-logo    { font-family:'Barlow Condensed',sans-serif; font-size:46px; font-weight:800; letter-spacing:6px; color:var(--gold); text-transform:uppercase; text-align:center; text-shadow:0 0 36px var(--gold-glow); animation:glow-gold 3s ease infinite; }
+    .bfl-logo    { display:block; text-align:center; margin: 0 auto 4px; }
+    .bfl-logo img { height:72px; width:auto; filter:drop-shadow(0 0 24px rgba(240,180,41,0.55)); animation:glow-gold 3s ease infinite; }
     .bfl-sub     { text-align:center; color:var(--muted); font-size:12px; letter-spacing:2px; text-transform:uppercase; margin-bottom:24px; }
     .bfl-divider { height:1px; background:var(--border); margin:0 0 20px; }
     .role-tabs   { display:flex; gap:4px; background:rgba(0,0,0,.3); border:1px solid var(--border); border-radius:12px; padding:4px; margin-bottom:20px; }
@@ -80,7 +81,7 @@
 <div class="clayer" id="clayer"></div>
 <div class="page-center">
   <div class="card login-card">
-    <div class="bfl-logo">BISHOPIANS FANTASY LEAGUE</div>
+    <div class="bfl-logo"><img src="images/bfl-logo.png" alt="Bishopians Fantasy League"></div>
     <div class="login-subtitle">IPL 2026 Fantasy Auction</div>
     <div class="bfl-divider"></div>
     <!-- ══ SCREEN 1: LOGIN ══ -->
@@ -467,7 +468,7 @@ document.addEventListener('keydown', function(e) {
   <div class="footer-content">
     <div class="footer-logos">
       <img src="images/bfl-logo.png"         alt="BFL" class="footer-logo footer-logo-bfl">
-      <img src="images/ipl-auction-logo.png" alt="IPL Auction Logo" class="footer-logo footer-logo-t20">
+      <img src="images/ipl-auction-logo.png" alt="IPL Auction" class="footer-logo footer-logo-t20">
     </div>
     <p class="footer-copy">Copyright 2026 BFL. All rights reserved.</p>
   </div>

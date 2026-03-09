@@ -102,7 +102,7 @@ async function promptSetDay() {
       const bidVal = aState.bid_timer_default || aState.bid_duration_seconds;
       if (bidVal) { el('dm-bid-timer').value = bidVal; updateTimerHint('dm-bid-timer','dm-timer-hint'); }
       const rtmVal = aState.rtm_accept_timer_seconds || aState.rtm_timeout_seconds;
-      if (rtmVal) el('dm-rtm-timer').value = rtmVal;
+      if (rtmVal) { el('dm-rtm-timer').value = rtmVal; updateTimerHint('dm-rtm-timer','dm-rtm-timer-hint'); }
       if (aState.auction_day) { _dmDayVal = aState.auction_day; el('dm-day-val').textContent = _dmDayVal; }
       const _toHHMM = iso => { if (!iso) return ''; const t = new Date(iso); return String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'); };
       if (aState.day_start)      el('dm-start').value   = _toHHMM(aState.day_start);
@@ -230,8 +230,9 @@ async function saveDaySettings() {
   const bidTimerRaw = parseInt(el('dm-bid-timer')?.value) || 60;
   const rtmTimerRaw = parseInt(el('dm-rtm-timer')?.value) || 60;
   const bidTimer    = Math.max(30, Math.min(600, bidTimerRaw));
-  const rtmTimer    = Math.max(15, Math.min(300, rtmTimerRaw));
+  const rtmTimer    = Math.max(15, Math.min(3600, rtmTimerRaw));
   if (el('dm-bid-timer')) { el('dm-bid-timer').value = bidTimer; updateTimerHint('dm-bid-timer','dm-timer-hint'); }
+  if (el('dm-rtm-timer')) { el('dm-rtm-timer').value = rtmTimer; updateTimerHint('dm-rtm-timer','dm-rtm-timer-hint'); }
 
   const _timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
   const _fail = (msg) => { toast('Invalid Input', msg, 'error'); if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save & Publish'; } };
@@ -248,6 +249,13 @@ async function saveDaySettings() {
   if (end && rtmEndVal) {
     const ms = new Date(today+'T'+rtmEndVal).getTime() - new Date(today+'T'+end).getTime();
     if (ms <= 0) return _fail('RTM Window End must be after Auction End');
+  }
+  // Warn (non-blocking) if Auction End is already in the past
+  if (end) {
+    const endMs = new Date(today+'T'+end).getTime();
+    if (endMs < Date.now()) {
+      toast('Warning', 'Auction End time is already in the past — teams cannot bid.', 'warn');
+    }
   }
 
   const startIso  = start      ? new Date(today+'T'+start).toISOString()      : null;
@@ -294,12 +302,25 @@ async function saveDaySettings() {
 
 // ── Manual RTM Window trigger (admin can start it early/manually) ──────
 async function adminStartRTMWindow() {
-  if (!confirm('Start RTM Window now? This will queue all today\'s RTM-eligible players.')) return;
+  const btn = event?.target;
+  if (btn && btn._inFlight) return;
+  if (btn) { btn._inFlight = true; btn.disabled = true; btn.textContent = 'Starting…'; }
+  if (!confirm('Start RTM Window now? This will queue all today\'s RTM-eligible players.')) {
+    if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = '▶ Start RTM Window'; }
+    return;
+  }
   const { data, error } = await sb.rpc('start_rtm_window');
-  if (error || !data?.success) { toast('RTM Window Error', error?.message || data?.error || 'Failed', 'error'); return; }
-  if (data.result === 'no_rtm_players') { toast('RTM Window', 'No RTM-eligible players sold today', 'info'); return; }
-  toast('RTM Window Started', data.queue + ' player(s) in queue', 'success');
-  await fetchState();
+  if (error || !data?.success) {
+    toast('RTM Window Error', error?.message || data?.error || 'Failed', 'error');
+    if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = '▶ Start RTM Window'; }
+    return;
+  }
+  if (data.result === 'no_rtm_players') {
+    if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = '▶ Start RTM Window'; }
+    toast('RTM Window', 'No RTM-eligible players sold today', 'info'); return;
+  }
+  toast('RTM Window Started', (data.count || 0) + ' player(s) queued for RTM', 'success');
+  await loadAuctionState();
 }
 
 async function setAuctionDay(day) {
@@ -325,6 +346,16 @@ function updateTimerHint(inputId, hintId) {
 }
 let _serverClockOffset = 0;
 function serverNow() { return Date.now() + _serverClockOffset; }
+// Format seconds → "Xh MMm SSs" if >= 3600, "MMm SSs" if >= 60, else "Ss"
+function _fmtAdminTime(secs) {
+  if (secs <= 0) return '0s';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+  if (m > 0) return String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
+  return s + 's';
+}
 async function syncServerClock() {
   // Tier 1: HTTP Date header (no RPC needed)
   try {
@@ -424,7 +455,7 @@ async function pollAdminState() {
   // Lightweight state check — only do heavy reload if something changed
   try {
     const { data: state } = await sb.from('auction_state')
-      .select('status,current_player_id,current_highest_bid,current_highest_team_id,bid_timer_end,rtm_pending,rtm_team_id,last_player_id,current_set_name,unsold_player_ids,autopilot_enabled,last_action_at,rtm_window_active,day_end')
+      .select('status,current_player_id,current_highest_bid,current_highest_team_id,bid_timer_end,rtm_pending,rtm_team_id,last_player_id,current_set_name,unsold_player_ids,autopilot_enabled,last_action_at,rtm_window_active,day_end,rtm_window_end')
       .eq('id', 1).maybeSingle();
     if (!state) return;
 
@@ -446,7 +477,7 @@ async function pollAdminState() {
       state.current_highest_team_id, state.bid_timer_end, state.rtm_pending,
       state.rtm_team_id, state.last_player_id, state.current_set_name,
       (state.unsold_player_ids||[]).length, state.autopilot_enabled,
-      state.last_action_at, state.rtm_window_active
+      state.last_action_at, state.rtm_window_active, state.rtm_window_end||''
     ].join('|');
     if (hash === _lastAdminStateHash) return; // nothing changed
     _lastAdminStateHash = hash;
@@ -885,6 +916,11 @@ async function restartAuction() {
       bid_timer_end: null,
       rtm_pending: false,
       rtm_team_id: null,
+      rtm_match_price: null,
+      rtm_deadline: null,
+      rtm_window_active: false,
+      day_end: null,
+      rtm_window_end: null,
       unsold_player_ids: '{}',
       last_player_id: null,
       last_player_result: null,
@@ -894,6 +930,18 @@ async function restartAuction() {
       current_set_name: null
     }).eq('id', 1);
     if (e5) throw new Error('Reset state: ' + e5.message);
+
+    // Step 7: clear all rtm_decisions (full restart = clean slate)
+    try { await sb.from('rtm_decisions').delete().not('id', 'is', null); } catch(_) {}
+
+    // Step 8: restore is_rtm_eligible on all non-retained players with a prev_bfl_team
+    // sync_rtm_eligibility sets them false when a team's cards run out — restart undoes that
+    try {
+      await sb.from('players_master')
+        .update({ is_rtm_eligible: true })
+        .eq('is_retained', false)
+        .not('prev_bfl_team', 'is', null);
+    } catch(_) {}
 
     // NOTE: rtm_cards_total is left as-is (set correctly from Excel in schema).
     // compute_rtm_cards() uses wrong formula (3-retentions) and breaks RCB (0→3).
@@ -1261,64 +1309,143 @@ function renderRTMAdminBlock(state) {
   }
 
   const inWindow = !!state.rtm_window_active;
-  const queueLen = Array.isArray(state.day_rtm_queue) ? state.day_rtm_queue.length : 0;
 
-  if (state.rtm_pending) {
+  // Single-player live RTM (existing flow, not window)
+  if (state.rtm_pending && !inWindow) {
     const deadlineMs = state.rtm_deadline ? new Date(state.rtm_deadline).getTime() : null;
     const remInit = deadlineMs ? Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000)) : null;
-    const windowTag = inWindow
-      ? `<span style="font-size:10px;background:rgba(139,92,246,0.2);color:#c4b5fd;border-radius:4px;padding:2px 6px;margin-left:6px;">RTM WINDOW · ${queueLen} after this</span>`
-      : '';
     block.innerHTML = `
       <div class="rtm-admin-banner" style="position:relative;">
-        ${remInit !== null ? `<div id="rtm-admin-countdown" style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--gold);position:absolute;top:10px;right:12px;">${remInit}s</div>` : ''}
-        <span class="rtm-admin-title">RTM PENDING${windowTag}</span>
-        <span class="rtm-admin-sub">${state.rtm_team?.team_name || '?'} · Match: <strong>${fmt(state.rtm_match_price||0)}</strong>${state.current_player?.name ? ' · Player: <strong>'+state.current_player.name+'</strong>' : ''}${remInit !== null ? ' · <span style="color:var(--muted);font-size:11px;">auto-declines when timer hits 0</span>' : ''}</span>
+        ${remInit !== null ? `<div id="rtm-admin-countdown" style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--gold);position:absolute;top:10px;right:12px;">${_fmtAdminTime(remInit)}</div>` : ''}
+        <span class="rtm-admin-title">RTM PENDING</span>
+        <span class="rtm-admin-sub">${state.rtm_team?.team_name || '?'} · Match: <strong>${fmt(state.rtm_match_price||0)}</strong>${state.current_player?.name ? ' · <strong>'+state.current_player.name+'</strong>' : ''}</span>
         <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="btn btn-gold btn-sm" onclick="adminExerciseRTM(true)">✓ Accept RTM</button>
-          <button class="btn btn-ghost btn-sm" onclick="adminExerciseRTM(false)">✗ Decline</button>
+          <button class="btn btn-gold btn-sm" onclick="adminExerciseRTM(true)">Accept RTM</button>
+          <button class="btn btn-ghost btn-sm" onclick="adminExerciseRTM(false)">Decline</button>
         </div>
       </div>`;
     if (deadlineMs) startAdminRTMCountdown(deadlineMs);
-  } else if (inWindow && !state.rtm_pending) {
-    // Window active but between items — brief transition state
+    return;
+  }
+
+  if (inWindow) {
+    // RTM Window active — load and render all parallel decisions
+    stopAdminRTMCountdown();
+    _renderRTMWindowAdmin(block);
+    return;
+  }
+
+  // Check if day ended + window available but not started yet
+  const dayEndMs   = state.day_end       ? new Date(state.day_end).getTime()       : null;
+  const rtmEndMs   = state.rtm_window_end? new Date(state.rtm_window_end).getTime(): null;
+  const now        = serverNow();
+  if (dayEndMs && now >= dayEndMs && rtmEndMs && now < rtmEndMs && !inWindow) {
     stopAdminRTMCountdown();
     block.innerHTML = `
-      <div class="rtm-admin-banner" style="background:rgba(139,92,246,0.08);border-color:rgba(139,92,246,0.3);">
-        <span class="rtm-admin-title" style="color:#c4b5fd;">RTM WINDOW ACTIVE</span>
-        <span class="rtm-admin-sub">${queueLen} player(s) remaining in queue — processing…</span>
+      <div class="rtm-admin-banner" style="background:rgba(139,92,246,0.08);border-color:rgba(139,92,246,0.4);">
+        <span class="rtm-admin-title" style="color:#c4b5fd;">RTM WINDOW READY</span>
+        <span class="rtm-admin-sub">Auction day ended. RTM window is open. Click to show all RTM opportunities to eligible teams simultaneously.</span>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn btn-sm" style="background:rgba(139,92,246,0.2);color:#c4b5fd;border:1px solid rgba(139,92,246,0.5);" onclick="adminStartRTMWindow()">&#9654; Start RTM Window</button>
+        </div>
       </div>`;
   } else {
-    // Check if day ended + RTM window available but not started
-    const dayEndMs = state.day_end ? new Date(state.day_end).getTime() : null;
-    const rtmWindowEndMs = state.rtm_window_end ? new Date(state.rtm_window_end).getTime() : null;
-    const now = serverNow();
-    if (dayEndMs && now >= dayEndMs && rtmWindowEndMs && now < rtmWindowEndMs && !inWindow) {
-      stopAdminRTMCountdown();
-      block.innerHTML = `
-        <div class="rtm-admin-banner" style="background:rgba(139,92,246,0.08);border-color:rgba(139,92,246,0.4);">
-          <span class="rtm-admin-title" style="color:#c4b5fd;">RTM WINDOW READY</span>
-          <span class="rtm-admin-sub">Auction day ended. RTM window is open. Click to process RTM queue for today.</span>
-          <div style="display:flex;gap:8px;margin-top:8px;">
-            <button class="btn btn-sm" style="background:rgba(139,92,246,0.2);color:#c4b5fd;border:1px solid rgba(139,92,246,0.5);" onclick="adminStartRTMWindow()">▶ Start RTM Window</button>
-          </div>
-        </div>`;
-    } else {
-      stopAdminRTMCountdown();
-      block.innerHTML = '';
-    }
+    stopAdminRTMCountdown();
+    block.innerHTML = '';
   }
+}
+
+// Render ALL pending rtm_decisions simultaneously (parallel window)
+let _rtmWindowPollTimer = null;
+async function _renderRTMWindowAdmin(block) {
+  try {
+    const { data: decisions } = await sb.from('rtm_decisions')
+      .select(`*, player:players_master(name,role,ipl_team), rtm_team:teams!rtm_decisions_rtm_team_id_fkey(team_name), buyer:teams!rtm_decisions_buyer_team_id_fkey(team_name)`)
+      .eq('auction_day', currentState?.auction_day)
+      .order('created_at', { ascending: true });
+
+    const pending  = (decisions||[]).filter(d => d.decision === 'pending');
+    const resolved = (decisions||[]).filter(d => d.decision !== 'pending');
+
+    if (!decisions?.length) {
+      block.innerHTML = `<div class="rtm-admin-banner" style="background:rgba(139,92,246,0.08);border-color:rgba(139,92,246,0.3);"><span class="rtm-admin-title" style="color:#c4b5fd;">RTM WINDOW ACTIVE</span><span class="rtm-admin-sub">No RTM decisions found for today.</span></div>`;
+      return;
+    }
+
+    const firstDeadline = pending[0]?.deadline ? new Date(pending[0].deadline).getTime() : null;
+    const remSecs = firstDeadline ? Math.max(0, Math.ceil((firstDeadline - serverNow()) / 1000)) : null;
+
+    const pendingHTML = pending.map(d => `
+      <div class="rtm-decision-row" id="rtmd-${d.id}">
+        <div class="rtmd-player"><strong>${d.player?.name||'—'}</strong> <span style="color:var(--muted);font-size:11px;">${d.player?.role||''} · ${d.player?.ipl_team||''}</span></div>
+        <div class="rtmd-info">
+          <span class="rtmd-team">${d.rtm_team?.team_name||'—'}</span>
+          <span class="rtmd-price">${fmt(d.match_price)}</span>
+          <span style="font-size:11px;color:var(--muted);">vs buyer: ${d.buyer?.team_name||'—'}</span>
+        </div>
+        <div class="rtmd-actions">
+          <button class="btn btn-gold btn-sm" onclick="adminDecideRTM('${d.id}',true)">Accept</button>
+          <button class="btn btn-ghost btn-sm" onclick="adminDecideRTM('${d.id}',false)">Decline</button>
+        </div>
+      </div>`).join('');
+
+    const resolvedHTML = resolved.length ? `
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Resolved</div>
+        ${resolved.map(d => `
+          <div class="rtmd-resolved">
+            <span><strong>${d.player?.name||'—'}</strong> · ${d.rtm_team?.team_name||'—'}</span>
+            <span class="rtmd-badge-${d.decision}">${d.decision.toUpperCase()}</span>
+          </div>`).join('')}
+      </div>` : '';
+
+    block.innerHTML = `
+      <div class="rtm-admin-banner" style="background:rgba(139,92,246,0.08);border-color:rgba(139,92,246,0.4);padding:14px 16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <span class="rtm-admin-title" style="color:#c4b5fd;">RTM WINDOW — ${pending.length} PENDING</span>
+          ${remSecs !== null ? `<span id="rtmd-countdown" style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;color:${remSecs<=10?'var(--red)':'var(--gold)'};">${_fmtAdminTime(remSecs)}</span>` : ''}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">All eligible teams are deciding simultaneously. Auto-declines when timer expires.</div>
+        ${pendingHTML}
+        ${resolvedHTML}
+      </div>`;
+
+    if (firstDeadline) startAdminRTMCountdown(firstDeadline);
+
+    // Poll for changes while window is open
+    clearTimeout(_rtmWindowPollTimer);
+    if (pending.length > 0) {
+      _rtmWindowPollTimer = setTimeout(() => _renderRTMWindowAdmin(block), 3000);
+    }
+  } catch(e) {
+    block.innerHTML = `<div class="rtm-admin-banner"><span class="rtm-admin-sub" style="color:var(--red);">Error loading RTM decisions: ${e.message}</span></div>`;
+  }
+}
+
+async function adminDecideRTM(decisionId, accept) {
+  const row = document.getElementById('rtmd-' + decisionId);
+  if (row) { row.style.opacity = '0.5'; row.querySelectorAll('button').forEach(b => b.disabled = true); }
+  const { data, error } = await sb.rpc('exercise_rtm_decision', { p_decision_id: decisionId, p_accept: accept });
+  if (error || !data?.success) {
+    toast('RTM Error', error?.message || data?.error || 'Failed', 'error');
+    if (row) { row.style.opacity = ''; row.querySelectorAll('button').forEach(b => b.disabled = false); }
+    return;
+  }
+  toast(accept ? 'RTM Accepted' : 'RTM Declined',
+    data.player + (accept ? ' retained by RTM team' : ' stays with winning bidder'),
+    accept ? 'success' : 'info');
+  await Promise.all([loadTeams(), loadAuctionState()]);
 }
 
 let adminRTMInterval = null;
 function startAdminRTMCountdown(endMs) {
   clearInterval(adminRTMInterval); adminRTMInterval = null;
   adminRTMInterval = setInterval(() => {
-    const t = el('rtm-admin-countdown');
+    const t = el('rtm-admin-countdown') || el('rtmd-countdown');
     if (!t) { clearInterval(adminRTMInterval); adminRTMInterval = null; return; }
     const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
-    t.textContent = rem + 's';
-    t.style.color = rem <= 10 ? 'var(--red)' : 'var(--gold)';
+    t.textContent = rem <= 0 ? '0s' : _fmtAdminTime(rem);
+    t.style.color = rem <= 30 ? 'var(--red)' : 'var(--gold)';
     if (rem <= 0) { clearInterval(adminRTMInterval); adminRTMInterval = null; }
   }, 300);
 }
@@ -2240,6 +2367,10 @@ function subscribeRealtime() {
         await loadPlayers(); await loadHistory(); updateStats();
       }, 350);
     })
+    // RTM window: reload admin state when any decision changes
+    .on('postgres_changes', { event:'*', schema:'public', table:'rtm_decisions' }, () => {
+      dbt('rtm', async () => { await loadAuctionState(); await loadTeams(); }, 300);
+    })
     .on('system', {}, p => {
       if (p.status === 'SUBSCRIBED') {
         setConn('connected');
@@ -2502,8 +2633,8 @@ function renderLiveSetPanel() {
       const t = document.getElementById('admin-set-timer');
       if (!t) { clearInterval(adminSetTimerInterval); return; }
       const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
-      t.textContent = rem + 's';
-      t.className = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
+      t.textContent = rem <= 0 ? 'Ended' : _fmtAdminTime(rem);
+      t.className = 'timer' + (rem <= 0 ? ' timer-ended' : rem <= 30 ? ' timer-critical' : rem <= 60 ? ' timer-warning' : '');
       if (rem <= 0) clearInterval(adminSetTimerInterval);
     }, 250);
     // Start autopilot watcher on every render if not already scheduled
@@ -2513,8 +2644,8 @@ function renderLiveSetPanel() {
   }
 
   const initRem      = _setIsPaused ? 0 : Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
-  const timerDisplay = _setIsPaused ? 'Paused' : (initRem + 's');
-  const timerClass   = _setIsPaused ? 'timer' : ('timer' + (initRem <= 5 ? ' timer-critical' : initRem <= 10 ? ' timer-warning' : ''));
+  const timerDisplay = _setIsPaused ? 'Paused' : (initRem <= 0 ? 'Ended' : _fmtAdminTime(initRem));
+  const timerClass   = _setIsPaused ? 'timer' : ('timer' + (initRem <= 0 ? ' timer-ended' : initRem <= 30 ? ' timer-critical' : initRem <= 60 ? ' timer-warning' : ''));
 
   const slotCards = activeSetSlots.map(slot => {
     const player  = allPlayers.find(p => p.id === slot.player_id) || {};
@@ -2550,9 +2681,11 @@ function renderLiveSetPanel() {
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Timer</div>
           <div id="admin-set-timer" class="${timerClass}" style="font-size:34px;">${timerDisplay}</div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="closeSetAuction()">Close Set</button>
-        <button id="pause-set-btn" class="btn ${_setIsPaused?'btn-gold':'btn-ghost'} btn-sm" onclick="togglePauseSet()" title="Pause/Resume set timer for all slots">${_setIsPaused?'▶ Resume Set':'⏸ Pause Set'}</button>
-        <button class="btn-cancel-set" onclick="cancelSetAuction()" title="Stop set auction without selling — returns all players to available pool">✕ Cancel Set</button>
+        <div class="set-live-btn-group" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-danger btn-sm" onclick="closeSetAuction()">Close Set</button>
+          <button id="pause-set-btn" class="btn ${_setIsPaused?'btn-gold':'btn-ghost'} btn-sm" onclick="togglePauseSet()" title="Pause/Resume set timer for all slots">${_setIsPaused?'▶ Resume Set':'⏸ Pause Set'}</button>
+          <button class="btn-cancel-set" onclick="cancelSetAuction()" title="Stop set auction without selling — returns all players to available pool">✕ Cancel Set</button>
+        </div>
       </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">${slotCards}</div>
@@ -2573,7 +2706,7 @@ async function launchSetAuction(setName) {
 }
 
 async function closeSetAuction() {
-  if (!await confirm2('Players with bids → **SOLD** (RTM checked). No bids → **UNSOLD**.', {title:'Close Set',icon:'',danger:true})) return;
+  if (!await confirm2('Players with bids → **SOLD**. No bids → **UNSOLD**. RTM opportunities (if any) will be handled in the end-of-day RTM Window.', {title:'Close Set',icon:'',danger:true})) return;
   clearError();
   const setName = currentState?.current_set_name;
   if (!setName) return showError('No active set auction');

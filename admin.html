@@ -23,7 +23,7 @@
 
 
 <nav class="navbar" id="main-nav">
-  <div class="navbar-logo"><img src="images/bfl-logo.png" style="width: 24px;" alt="BFL Logo"></div>
+  <div class="navbar-logo"><img src="images/bfl-logo.png" alt="BFL" class="navbar-logo-img"></div>
   <div class="navbar-info"><strong>Admin</strong></div>
   <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
     <span id="autopilot-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;"></span>
@@ -361,9 +361,9 @@
               <select class="form-input" id="squad-team-select" style="width:220px;" onchange="renderSquadView()">
                 <option value="">Select Team…</option>
               </select>
+              <button class="btn-export pdf" onclick="exportTeamSquadPDF()">Squad PDF</button>
             </div>
             <div class="export-bar">
-              <button class="btn-export pdf" onclick="exportTeamSquadPDF()">Squad PDF</button>
               <button class="btn-export pdf" onclick="exportAllSquadsPDF()">All Squads PDF</button>
               <button class="btn-export csv" onclick="exportAllSquadsCSV()">All Squads CSV</button>
             </div>
@@ -381,7 +381,7 @@
               <div style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
                 Assign each non-retained player to the BFL team that owned them last year.
                 Only players with <strong>Prev BFL Team</strong> set will trigger RTM at auction.
-                Teams with RTM cards: <strong>GT · CSK · KKR · RR · SURA · LSG</strong>
+                Teams with RTM cards: <strong>GT · CSK · KKR · RR · Supreme Rajas · LSG</strong>
               </div>
               <div class="filters-bar" style="margin-bottom:12px;">
                 <input class="form-input" type="text" id="rtm-search"
@@ -480,8 +480,9 @@
         <div class="dm-field-row" style="margin-top:8px;">
           <label class="dm-field-lbl">RTM Decision</label>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <input type="number" class="dm-input" id="dm-rtm-timer" min="15" max="300" step="5" value="60" style="width:80px;">
-            <span style="font-size:11px;color:var(--muted);">sec per player</span>
+            <input type="number" class="dm-input" id="dm-rtm-timer" min="15" max="3600" step="5" value="60" style="width:80px;" oninput="updateTimerHint('dm-rtm-timer','dm-rtm-timer-hint')">
+            <span style="font-size:11px;color:var(--muted);">sec</span>
+            <span class="dm-hint" id="dm-rtm-timer-hint">= 1 min</span>
           </div>
         </div>
       </div>
@@ -538,7 +539,7 @@
   <div class="footer-content">
     <div class="footer-logos">
       <img src="images/bfl-logo.png"         alt="BFL" class="footer-logo footer-logo-bfl">
-      <img src="images/ipl-auction-logo.png" alt="ICC Men's T20 World Cup 2026" class="footer-logo footer-logo-t20">
+      <img src="images/ipl-auction-logo.png" alt="IPL Auction" class="footer-logo footer-logo-t20">
     </div>
     <p class="footer-copy">Copyright 2026 BFL. All rights reserved.</p>
   </div>
