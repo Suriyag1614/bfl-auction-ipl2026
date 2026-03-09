@@ -377,7 +377,7 @@ var _ri = 0; // current rule index
 var RULES = [
   { step:'Overview', title:'Welcome to BFL IPL 2026 Auction',
     body:'You are a <strong>franchise owner</strong> competing to build the best IPL squad within your budget.<ul>' +
-         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹100 Cr purse</span> (retentions already deducted)</li>' +
+         '<li>Each team starts with a <span class="rule-tag rtag-gold">₹120 Cr purse</span> (retentions already deducted)</li>' +
          '<li>Sign exactly <span class="rule-tag rtag-blue">12 players</span> to complete your squad</li>' +
          '<li>Auction runs in <strong>individual player</strong> slots and <strong>set auctions</strong> (simultaneous bidding on multiple players)</li>' +
          '<li>The auctioneer (admin) controls the pace — watch the screen at all times</li>' +
@@ -511,5 +511,16 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'ArrowLeft'  && rules) { e.preventDefault(); rulesNav(-1); return; }
 });
 </script>
+
+<footer class="site-footer">
+  <div class="footer-divider"></div>
+  <div class="footer-content">
+    <div class="footer-logos">
+      <img src="images/bfl-logo.png"         alt="BFL" class="footer-logo footer-logo-bfl">
+      <img src="images/ipl-auction-logo.png" alt="ICC Men's T20 World Cup 2026" class="footer-logo footer-logo-t20">
+    </div>
+    <p class="footer-copy">Copyright 2026 BFL. All rights reserved.</p>
+  </div>
+</footer>
 </body>
 </html>

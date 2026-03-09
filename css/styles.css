@@ -1351,8 +1351,8 @@ select.form-input{cursor:pointer;}
 .toast-info    .toast-icon { background: rgba(49,130,206,0.18); color: #63b3ed; }
 .toast-rtm     .toast-icon { background: rgba(128,90,213,0.18); color: #b794f4; }
 
-/* Icon SVGs via content — use text chars instead */
-.toast-icon svg { width:16px; height:16px; stroke-width:2.5; }
+/* Icon pngs via content — use text chars instead */
+.toast-icon png { width:16px; height:16px; stroke-width:2.5; }
 
 /* Text block */
 .toast-body { flex: 1; min-width: 0; }
@@ -2213,3 +2213,78 @@ input[type="number"].dm-input { width: 90px; flex: none; }
 }
 .bh-lock-icon { font-size: 14px; flex-shrink: 0; }
 .bh-lock-msg  { line-height: 1.4; }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   SITE FOOTER — matches reference design
+   ═══════════════════════════════════════════════════════════════ */
+.site-footer {
+  width: 100%;
+  margin-top: auto;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.footer-divider {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(240, 180, 41, 0.55) 30%,
+    rgba(240, 180, 41, 0.55) 70%,
+    transparent 100%
+  );
+  margin: 0;
+}
+
+.footer-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 24px 20px;
+  background: linear-gradient(
+    to bottom,
+    rgba(10, 12, 16, 0) 0%,
+    rgba(10, 12, 16, 0.7) 100%
+  );
+}
+
+.footer-logos {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.footer-logo {
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.5));
+}
+
+.footer-logo-bfl {
+  height: 48px;
+  width: auto;
+}
+
+.footer-logo-t20 {
+  height: 44px;
+  width: auto;
+}
+
+.footer-copy {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--gold);
+  opacity: 0.85;
+  text-align: center;
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .footer-logo-bfl { height: 38px; }
+  .footer-logo-t20 { height: 34px; }
+  .footer-copy     { font-size: 12px; }
+  .footer-content  { padding: 16px 16px 14px; gap: 10px; }
+}
