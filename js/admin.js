@@ -45,15 +45,17 @@ function getIPLColors(code) {
     PBKS:{ primary:'#aa192f', secondary:'#dbbe6c', glow:'rgba(170,25,47,0.35)' },
     RR: { primary:'#2d62a4', secondary:'#e83f5b', glow:'rgba(45,98,164,0.35)' },
     GT: { primary:'#1c3e6e', secondary:'#c8a84b', glow:'rgba(28,62,110,0.35)' },
-    LSG:{ primary:'#00b4d8', secondary:'#c6a200', glow:'rgba(0,180,216,0.35)' },
+    LSG: { primary:'#00b4d8', secondary:'#c6a200', glow:'rgba(0,180,216,0.35)' },
+    SURA:{ primary:'#1a3a8a', secondary:'#c8a850', glow:'rgba(26,58,138,0.35)' },
   };
   return map[(code||'').toUpperCase()] || null;
 }
+const _LOGO_CODE_MAP = { 'SUPREME RAJAS': 'SURA' };
 function getIPLLogoUrl(code) {
   if (!code) return null;
-  const c = (code||'').trim().toUpperCase();
-  // Local images folder — e.g. images/CSKoutline.png
-  return `images/${c}outline.png`;
+  const upper  = (code||'').trim().toUpperCase();
+  const mapped = _LOGO_CODE_MAP[upper] || upper;
+  return `images/${mapped}outline.png`;
 }
 // IPL 25 Fantasy Avg tier helper
 function avgTier(v) {

@@ -142,14 +142,21 @@ function getIPLColors(code) {
     RR:   { primary:'#2d62a4', secondary:'#e83f5b', glow:'rgba(45,98,164,0.35)' },
     GT:   { primary:'#1c3e6e', secondary:'#c8a84b', glow:'rgba(28,62,110,0.35)' },
     LSG:  { primary:'#00b4d8', secondary:'#c6a200', glow:'rgba(0,180,216,0.35)' },
+    SURA: { primary:'#1a3a8a', secondary:'#c8a850', glow:'rgba(26,58,138,0.35)' },
   };
   return map[(code||'').toUpperCase()] || null;
 }
+// Map full team names → short file-name codes for logo images
+const _LOGO_CODE_MAP = {
+  'SUPREME RAJAS': 'SURA',
+  // add more overrides here if needed
+};
 function getIPLLogoUrl(code) {
   if (!code) return null;
-  const c = (code||'').trim().toUpperCase();
-  // Local images folder — e.g. images/CSKoutline.png
-  return `images/${c}outline.png`;
+  const upper = (code||'').trim().toUpperCase();
+  const mapped = _LOGO_CODE_MAP[upper] || upper;
+  // Local images folder — e.g. images/CSKoutline.png, images/SURAoutline.png
+  return `images/${mapped}outline.png`;
 }
 
 // IPL 25 Fantasy Avg tier helper (max observed ~154)
@@ -660,7 +667,7 @@ async function renderSetHighlights(state, cont) {
       <div class="set-hl-card set-hl-top-bid">
         <div class="set-hl-card-lbl">Highest Bid</div>
         <div class="set-hl-player-row">
-          <img src="${imgSrc(topBid.player?.image_url)}" onerror="this.onerror=null;this.src=window._SIL" alt="" class="set-hl-img">
+          <img src="${imgSrc(topBid.player?.image_url)}" onerror="this.onerror=null;this.style.display='none'" alt="" class="set-hl-img">
           <div class="set-hl-player-info">
             <div class="set-hl-player-name">${topBid.player?.name || '?'}</div>
             <div class="set-hl-player-meta">
@@ -767,7 +774,7 @@ function renderLastResult(state) {
     : '';
 
   banner.innerHTML = `
-    <img src="${imgSrc(p?.image_url)}" onerror="this.onerror=null;this.src=window._SIL" alt=""
+    <img src="${imgSrc(p?.image_url)}" onerror="this.onerror=null;this.style.display='none'" alt=""
       style="width:50px;height:50px;border-radius:50%;object-fit:cover;flex-shrink:0;
              border:2px solid ${sold&&colors?colors.primary:'var(--border2)'};">
     ${logoHTML}
@@ -809,7 +816,7 @@ async function renderLivePlayer(state, paused) {
         <div class="adv-card-body">
           <div class="adv-card-photo-col">
             <img id="player-img" class="adv-card-avatar" src="" alt=""
-              onerror="this.onerror=null;this.src=window._SIL;">
+              onerror="this.onerror=null;this.style.display='none'">
             <img id="adv-ipl-logo" class="adv-card-ipl-logo" src="" alt="" style="display:none;"
               onerror="this.style.display='none'">
           </div>
@@ -1003,7 +1010,7 @@ function renderRTMPending(state) {
             style="font-size:32px;display:inline-block;">${remInit||60}s</div>
         </div>` : ''}
       <div class="rtm-body">
-        <img src="${imgSrc(p?.image_url)}" onerror="this.onerror=null;this.src=window._SIL" alt="" class="rtm-player-img">
+        <img src="${imgSrc(p?.image_url)}" onerror="this.onerror=null;this.style.display='none'" alt="" class="rtm-player-img">
         <div style="flex:1;min-width:0;">
           <div class="rtm-player-name">${p?.name||'—'}</div>
           <div class="rtm-player-sub">${p?.role||''} · ${p?.ipl_team||''}${p?.prev_bfl_team?' · Prev BFL: '+p.prev_bfl_team:''}</div>
@@ -1076,16 +1083,12 @@ async function renderSetInPlayerCard(state) {
     .eq('set_name', state.current_set_name).eq('status', 'live');
   if (error) { console.warn('[renderSetInPlayerCard]', error.message); return; }
   if (!slots?.length) {
-    el('player-card').innerHTML = `
-      <div class="no-auction-msg">
-        <span class="set-closing-badge">SET</span>
-        <div style="margin-top:10px;font-size:16px;font-weight:600;color:var(--text2);">
-          ${_esc(state.current_set_name||'')} — complete
-        </div>
-        <div style="margin-top:6px;font-size:13px;color:var(--muted);">
-          All players sold or unsold. Waiting for admin to continue…
-        </div>
-      </div>`;
+    // No live slots: set has been closed (by autopilot or admin).
+    // Force an immediate state re-fetch — the real status is now 'waiting'
+    // and renderLastResult will show the proper Set Highlights banner.
+    // DO NOT render a "complete" div here; that would flash incorrectly during autopilot.
+    _lastStateHash = ''; _lastSlotsHash = '';
+    setTimeout(() => fetchState(), 120);
     return;
   }
 
@@ -1171,7 +1174,7 @@ function buildSlotCardHTML(slot) {
     <div class="sc-header">
       <div class="sc-avatar-wrap">
         <img class="sc-avatar" src="${imgSrc(p.image_url)}"
-          onerror="this.onerror=null;this.src=window._SIL" alt="">
+          onerror="this.onerror=null;this.style.display='none'" alt="">
         ${logoUrl ? `<img class="sc-team-logo" src="${logoUrl}"
           onerror="this.style.display='none'" alt="${p.ipl_team||''}">` : ''}
       </div>
@@ -1324,7 +1327,7 @@ async function renderMiniHistory(wrapId) {
     if (!items.length) { wrap.innerHTML = ''; return; }
     wrap.innerHTML = `<div class="mini-history"><div class="mini-history-title">Recent Results</div>
       ${items.map(r=>`<div class="mini-history-item">
-        <img src="${imgSrc(r.img)}" onerror="this.onerror=null;this.src=window._SIL" alt="">
+        <img src="${imgSrc(r.img)}" onerror="this.onerror=null;this.style.display='none'" alt="">
         <div class="mh-name">${r.name}<span class="mh-role"> · ${r.role}</span>${r.isRTM?'<span class="tag tag-rtm" style="font-size:10px;padding:1px 4px;margin-left:4px;">RTM</span>':''}</div>
         ${r.status==='sold'?`<div class="mh-team">${r.team}</div><div class="mh-price sold-price">${fmt(r.price)}</div>`:`<div class="mh-price unsold-price">Unsold</div>`}
       </div>`).join('')}</div>`;
