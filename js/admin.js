@@ -68,6 +68,8 @@ function avgTier(v) {
 
 const el  = id => document.getElementById(id);
 const fmt = v  => '₹' + Number(v).toFixed(2) + ' Cr';
+const _DEBUG = false; // flip to true in dev for verbose logging
+const dbg = (...a) => { if (_DEBUG) console.log(...a); };
 
 // Per-key debounce map
 const _dbt = {};
@@ -252,6 +254,16 @@ async function saveDaySettings() {
   if (el('dm-bid-timer')) { el('dm-bid-timer').value = bidTimer; updateTimerHint('dm-bid-timer','dm-timer-hint'); }
   if (el('dm-set-timer')) { el('dm-set-timer').value = setTimer; updateTimerHint('dm-set-timer','dm-set-timer-hint'); }
 
+  // Validate HH:MM time format before converting to ISO
+  const _timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (start && !_timeRe.test(start)) {
+    if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
+    toast('Invalid Time', 'Start time must be HH:MM (e.g. 14:00)', 'error'); return;
+  }
+  if (end && !_timeRe.test(end)) {
+    if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
+    toast('Invalid Time', 'End time must be HH:MM (e.g. 21:00)', 'error'); return;
+  }
   const startIso = start ? new Date(today + 'T' + start).toISOString() : null;
   const endIso   = end   ? new Date(today + 'T' + end).toISOString()   : null;
 
@@ -338,7 +350,7 @@ async function syncServerClock() {
       if (isNaN(serverMs)) break;
       _serverClockOffset = serverMs - (t0 + rtt / 2);
       if (Math.abs(_serverClockOffset) > 300000) { _serverClockOffset = 0; break; }
-      console.log('[admin clock:hdr] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      dbg('[admin clock:hdr] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
       if (typeof _timerEndMs !== 'undefined') _timerEndMs = 0; // recalc timers
       return;
     }
@@ -356,7 +368,7 @@ async function syncServerClock() {
       const serverMs = new Date(data.server_time).getTime();
       _serverClockOffset = serverMs - (t0 + rtt / 2);
       if (Math.abs(_serverClockOffset) > 300000) { _serverClockOffset = 0; continue; }
-      console.log('[admin clock:rpc] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      dbg('[admin clock:rpc] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
       if (typeof _timerEndMs !== 'undefined') _timerEndMs = 0;
       return;
     }
@@ -582,8 +594,8 @@ function renderPlayerList() {
     }
     const row = sold ? 'row-sold' : isUnsold ? 'row-unsold' : isCurrent ? 'row-current' : '';
     const img = p.image_url
-      ? `<img src="${p.image_url}" class="player-avatar" alt="" onerror="this.onerror=null;this.src=window._SIL_ADMIN||''">`
-      : `<img src="${SILHOUETTE_ADMIN}" class="player-avatar" alt="">`;
+      ? `<img src="${p.image_url}" class="player-avatar" alt="" loading="lazy" onerror="this.onerror=null;this.src=window._SIL_ADMIN||''">`
+      : `<img src="${SILHOUETTE_ADMIN}" class="player-avatar" alt="" loading="lazy">`;
     // Tags — clear semantics:
     // RTN = pre-retained by admin (most important, shown first)
     // RTM = eligible for RTM at auction (only if not retained)
@@ -637,23 +649,27 @@ let _startInFlight = false;
 async function startAuction(playerId) {
   if (_startInFlight) return; _startInFlight = true;
   clearError();
-  let forceOverride = false;
-  const liveStatus = currentState?.status;
-  if (liveStatus === 'live' || liveStatus === 'set_live') {
-    const ok = await confirm2(
-      liveStatus === 'set_live'
-        ? 'A set auction is live. Force-start this player anyway?'
-        : 'Another player is live. Force-start this one instead?',
-      { title:'Force Start', icon:'', danger:true }
-    );
-    if (!ok) return;
-    forceOverride = true;
+  try {
+    let forceOverride = false;
+    const liveStatus = currentState?.status;
+    if (liveStatus === 'live' || liveStatus === 'set_live') {
+      const ok = await confirm2(
+        liveStatus === 'set_live'
+          ? 'A set auction is live. Force-start this player anyway?'
+          : 'Another player is live. Force-start this one instead?',
+        { title:'Force Start', icon:'', danger:true }
+      );
+      if (!ok) return;
+      forceOverride = true;
+    }
+    const { data, error } = await sb.rpc('start_auction', { p_player_id: playerId, p_force: forceOverride });
+    if (error) { showError(error.message); return; }
+    if (!data?.success) { showError(data?.error || 'Error'); return; }
+    toast('Auction Started', (data.player||'Player') + ' is now live', 'success');
+    await loadAuctionState(); renderPlayerList();
+  } finally {
+    _startInFlight = false; // always reset — never leaves UI locked
   }
-  const { data, error } = await sb.rpc('start_auction', { p_player_id: playerId, p_force: forceOverride });
-  if (error) return showError(error.message);
-  if (!data?.success) return showError(data?.error || 'Error');
-  _startInFlight = false; toast('Auction Started', (data.player||'Player') + ' is now live', 'success');
-  await loadAuctionState(); renderPlayerList();
 }
 
 async function pauseAuction() {
@@ -2637,11 +2653,11 @@ function startSetAutopilotWatcher(endMs) {
       if (currentState?.status !== 'set_live') {
         clearInterval(_setAutopilotPollId); _setAutopilotPollId = null; return;
       }
-      console.log('[SetAutopilot] Attempting auto-close…');
+      dbg('[SetAutopilot] Attempting auto-close…');
       // Try tick_auction to close expired slots atomically
       const { data: td, error: te } = await sb.rpc('tick_auction');
       if (te) console.warn('[SetAutopilot] tick_auction error:', te.message);
-      else console.log('[SetAutopilot] tick_auction result:', td);
+      else dbg('[SetAutopilot] tick_auction result:', td);
 
       await loadAuctionState();
       const setName = currentState?.current_set_name;
@@ -2783,6 +2799,9 @@ async function renderRetentionView() {
 }
 
 async function addRetention() {
+  if (currentState?.status === 'live' || currentState?.status === 'set_live') {
+    return showError('Cannot modify retentions while auction is live — pause first.');
+  }
   const teamId   = el('ret-team')?.value;
   const playerId = el('ret-player')?.value;
   const slot     = parseInt(el('ret-slot')?.value || '1');
@@ -2801,16 +2820,13 @@ async function addRetention() {
 }
 
 async function removeRetention(playerId, teamId, price) {
-  if (!await confirm2('Remove retention? Purse ₹'+Number(price).toFixed(2)+' Cr will be **refunded**.', {title:'Remove Retention',icon:'🗑'})) return;
-  // Try RPC first (also clears players_master.is_retained), fallback to manual
-  const { data, error } = await sb.rpc('remove_retention', { p_player_id: playerId, p_team_id: teamId });
-  if (error || !data?.success) {
-    // Fallback manual removal
-    await sb.from('team_players').delete().eq('player_id', playerId).eq('is_retained', true);
-    await sb.from('players_master').update({ is_retained: false }).eq('id', playerId);
-    const { data: t } = await sb.from('teams').select('purse_remaining').eq('id', teamId).single();
-    if (t) await sb.from('teams').update({ purse_remaining: Number(t.purse_remaining)+Number(price) }).eq('id', teamId);
+  if (currentState?.status === 'live' || currentState?.status === 'set_live') {
+    return showError('Cannot modify retentions while auction is live — pause first.');
   }
+  if (!await confirm2('Remove retention? Purse ₹'+Number(price).toFixed(2)+' Cr will be **refunded**.', {title:'Remove Retention',icon:'🗑'})) return;
+  const { data, error } = await sb.rpc('remove_retention', { p_player_id: playerId, p_team_id: teamId });
+  if (error) { showError('Remove retention failed: ' + error.message); return; }
+  if (!data?.success) { showError(data?.error || 'Remove failed'); return; }
   toast('Retention Removed', Number(price).toFixed(2) + ' Cr refunded to team', 'warn');
   await Promise.all([loadTeams(), loadPlayers(), renderRetentionView()]); updateStats();
 }

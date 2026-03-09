@@ -39,6 +39,8 @@ const dbt = (key, fn, ms=400) => { clearTimeout(_dbt[key]); _dbt[key] = setTimeo
 const _dbt = {};
 
 const el     = id => document.getElementById(id);
+const _DEBUG = false; // flip to true in dev for verbose logging
+const dbg = (...a) => { if (_DEBUG) console.log(...a); };
 const show   = id => { const e=el(id); if(e) e.style.display=''; };
 const hide   = id => { const e=el(id); if(e) e.style.display='none'; };
 const fmt    = v  => '₹' + Number(v).toFixed(2) + ' Cr';
@@ -301,8 +303,11 @@ async function init() {
   // Re-sync server clock every 5 minutes
   setInterval(syncServerClock, 5 * 60 * 1000);
 
-  // Refresh presence dots every 15s (independent of ping, catches other teams' pings)
-  setInterval(loadAllTeams, 15000);
+  // Refresh presence dots every 15s — only re-render when panel is visible
+  setInterval(() => {
+    const panel = document.getElementById('all-teams-card');
+    if (!panel || panel.offsetParent !== null) loadAllTeams();
+  }, 15000);
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
@@ -1071,7 +1076,16 @@ async function renderSetInPlayerCard(state) {
     .eq('set_name', state.current_set_name).eq('status', 'live');
   if (error) { console.warn('[renderSetInPlayerCard]', error.message); return; }
   if (!slots?.length) {
-    el('player-card').innerHTML = `<div class="no-auction-msg"><span class="set-closing-badge">SET</span> ${_esc(state.current_set_name||'')} — closing…</div>`;
+    el('player-card').innerHTML = `
+      <div class="no-auction-msg">
+        <span class="set-closing-badge">SET</span>
+        <div style="margin-top:10px;font-size:16px;font-weight:600;color:var(--text2);">
+          ${_esc(state.current_set_name||'')} — complete
+        </div>
+        <div style="margin-top:6px;font-size:13px;color:var(--muted);">
+          All players sold or unsold. Waiting for admin to continue…
+        </div>
+      </div>`;
     return;
   }
 
@@ -1258,50 +1272,39 @@ function patchSlotCard(slot) {
   }
 }
 
-// ── Bid history ───────────────────────────────────────────────
+// ── Bid history ─────────────────────────────────────────────────
+// Hidden while player is live — revealed only after sold/unsold result.
+// This prevents teams from seeing exact rival bid amounts during live play.
 async function loadBidHistory(playerId) {
   const wrap = el('bid-history-wrap'); if (!wrap || !playerId) return;
+
+  // Block during live bidding for this exact player
+  const liveNow = currentState?.status === 'live' && currentState?.current_player_id === playerId;
+  if (liveNow) {
+    wrap.innerHTML = `<div class="bid-history bid-history-locked">
+      <span class="bh-lock-icon">🔒</span>
+      <span class="bh-lock-msg">Bid details revealed once this player is sold or unsold</span>
+    </div>`;
+    return;
+  }
+
   try {
     const { data: bids, error } = await sb.from('bid_log')
       .select('bid_amount,bid_at,team:teams(team_name)')
-      .eq('player_id', playerId).order('bid_at', { ascending: false }).limit(12);
+      .eq('player_id', playerId).order('bid_at', { ascending: false }).limit(20);
     if (error) { console.warn('[BidHistory]', error.message); }
 
     if (bids?.length) {
       wrap.innerHTML = `<div class="bid-history">
-        <div class="bid-history-title">Bid History <span style="color:var(--muted);font-size:10px;">(${bids.length})</span></div>
+        <div class="bid-history-title">Bid History <span style="color:var(--muted);font-size:10px;">(${bids.length} bids)</span></div>
         ${bids.map((b,i) => `<div class="bid-history-row${i===0?' bh-latest':''}">
           <span class="bh-rank">#${bids.length - i}</span>
-          <span class="bh-team">${b.team?.team_name||'?'}</span>
+          <span class="bh-team">${_esc(b.team?.team_name||'?')}</span>
           <span class="bh-amount">${fmt(b.bid_amount)}</span>
         </div>`).join('')}
       </div>`;
     } else {
-      // bid_log empty (table may be fresh or bids cleared) — show live state from currentState
-      const st = currentState;
-      const rows = [];
-      if (st?.current_player_id === playerId) {
-        if (st.current_highest_bid > 0 && st.current_highest_team_id) {
-          const { data: ht } = await sb.from('teams').select('team_name').eq('id', st.current_highest_team_id).maybeSingle();
-          rows.push({ rank: 1, team: ht?.team_name || '?', amount: st.current_highest_bid, label: 'Current' });
-        }
-        if (st.second_highest_bid > 0 && st.second_highest_team_id) {
-          const { data: st2 } = await sb.from('teams').select('team_name').eq('id', st.second_highest_team_id).maybeSingle();
-          rows.push({ rank: 2, team: st2?.team_name || '?', amount: st.second_highest_bid, label: '2nd' });
-        }
-      }
-      if (rows.length) {
-        wrap.innerHTML = `<div class="bid-history">
-          <div class="bid-history-title">Live Bids</div>
-          ${rows.map(r => `<div class="bid-history-row${r.rank===1?' bh-latest':''}">
-            <span class="bh-rank">${r.label}</span>
-            <span class="bh-team">${r.team}</span>
-            <span class="bh-amount">${fmt(r.amount)}</span>
-          </div>`).join('')}
-        </div>`;
-      } else {
-        wrap.innerHTML = `<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">No bids placed yet</div></div>`;
-      }
+      wrap.innerHTML = `<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">No bid history recorded</div></div>`;
     }
   } catch(e) { console.warn('[BidHistory]', e.message); wrap.innerHTML = ''; }
 }
@@ -1540,7 +1543,7 @@ async function syncServerClock() {
       if (isNaN(serverMs)) break;
       _serverClockOffset = serverMs - (t0 + rtt / 2);
       if (Math.abs(_serverClockOffset) > 300000) { _serverClockOffset = 0; break; }
-      console.log('[clock:hdr] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      dbg('[clock:hdr] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
       _timerEndMs = 0; _setTimerEndMs = 0; // force timer recalculation with corrected clock
       return;
     }
@@ -1558,7 +1561,7 @@ async function syncServerClock() {
       const serverMs = new Date(data.server_time).getTime();
       _serverClockOffset = serverMs - (t0 + rtt / 2);
       if (Math.abs(_serverClockOffset) > 300000) { _serverClockOffset = 0; continue; }
-      console.log('[clock:rpc] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
+      dbg('[clock:rpc] offset=', _serverClockOffset.toFixed(0), 'ms rtt=', rtt, 'ms');
       _timerEndMs = 0; _setTimerEndMs = 0; // force timer recalculation with corrected clock
       return;
     }
@@ -1572,6 +1575,7 @@ async function syncServerClock() {
 function serverNow() { return Date.now() + _serverClockOffset; }
 
 let _timerEndMs = 0, _timerTotalSec = 60;
+let _timerExpiredAt = 0; // when single-player timer first hit 0 (for grace countdown)
 function startTimer(endTime) {
   if (!endTime) return;
   const newEndMs = new Date(endTime).getTime();
@@ -1603,15 +1607,31 @@ function startTimer(endTime) {
     const undoBidBtn = el('undo-bid-btn');
     if (bidBtn && !bidBtn._inFlight) {
       if (expired) {
-        bidBtn.disabled = true;  // timer expired — hard disable
+        bidBtn.disabled = true;
         const errEl = el('bid-error');
         if (errEl && !errEl.textContent) errEl.textContent = 'Bidding closed — timer has ended';
       }
-      // When not expired: do NOT re-enable here — renderLivePlayer owns the non-timer disabled state
     }
     if (undoBidBtn && expired) {
       undoBidBtn.disabled = true;
       undoBidBtn.title = 'Bidding closed — timer has ended';
+    }
+    // #10: Grace-period countdown — teams see "Selling in Xs…" so they know what's happening
+    const graceEl = el('grace-countdown');
+    if (graceEl) {
+      if (expired) {
+        if (!_timerExpiredAt) _timerExpiredAt = Date.now();
+        const graceTotal = (currentState?.autopilot_delay_seconds ?? 12) * 1000;
+        const elapsed    = Date.now() - _timerExpiredAt;
+        const remGrace   = Math.max(0, Math.ceil((graceTotal - elapsed) / 1000));
+        graceEl.textContent = remGrace > 0 ? 'Selling in ' + remGrace + 's…' : 'Finalising…';
+        graceEl.style.display = 'block';
+      } else {
+        _timerExpiredAt = 0;
+        graceEl.style.display = 'none';
+      }
+    } else if (!expired) {
+      _timerExpiredAt = 0;
     }
   }
   tick(); timerInterval = setInterval(tick, 500);
@@ -1918,14 +1938,13 @@ async function refreshPurse() {
     const { data: t } = await sb.from('teams')
       .select('purse_remaining,rtm_cards_total,rtm_cards_used').eq('id', myTeam.id).single();
     if (!t) return;
-    // Only update DOM if values actually changed
-    const changed = t.purse_remaining !== myTeam.purse_remaining ||
-                    t.rtm_cards_total !== myTeam.rtm_cards_total ||
-                    t.rtm_cards_used  !== myTeam.rtm_cards_used;
+    // #27: compare as numbers so post-set-auction deduction always triggers the delta animation
+    const purseChanged = Number(t.purse_remaining) !== Number(myTeam.purse_remaining);
+    const rtmChanged   = t.rtm_cards_total !== myTeam.rtm_cards_total || t.rtm_cards_used !== myTeam.rtm_cards_used;
     myTeam.purse_remaining = t.purse_remaining;
     myTeam.rtm_cards_total = t.rtm_cards_total;
     myTeam.rtm_cards_used  = t.rtm_cards_used;
-    if (changed) { updatePurseDisplay(); updateRTMBadge(); }
+    if (purseChanged || rtmChanged) { updatePurseDisplay(); updateRTMBadge(); }
   } catch(e) { console.warn('[refreshPurse]', e.message); }
 }
 

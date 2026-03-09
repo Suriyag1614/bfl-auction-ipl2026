@@ -140,7 +140,7 @@ select.form-input{cursor:pointer;}
 .btn-blue:hover:not(:disabled){box-shadow:0 4px 20px rgba(59,130,246,0.4);}
 .btn-ghost{background:rgba(255,255,255,0.05);color:var(--text2);border:1px solid var(--border);}
 .btn-ghost:hover:not(:disabled){border-color:var(--border2);}
-.btn-sm{padding:5px 12px;font-size:13px;}
+.btn-sm{padding:5px 12px;font-size:13px;min-height:36px;}
 .btn-start{background:rgba(240,180,41,0.12);color:var(--gold);border:1px solid var(--gold-dim);}
 .btn-start:hover:not(:disabled){box-shadow:0 4px 20px rgba(240,180,41,0.4);}
 
@@ -178,7 +178,7 @@ select.form-input{cursor:pointer;}
 .status-rtm{background:rgba(139,92,246,0.15);color:#c4b5fd;border:1px solid rgba(139,92,246,0.5);animation:rtm-pulse 2s infinite;}
 
 /* Timer */
-.timer{font-family:'Barlow Condensed',sans-serif;font-size:52px;font-weight:800;color:var(--text);line-height:1;text-align:center;min-width:60px;display:block;transition:color 0.3s;}
+.timer{font-family:'Barlow Condensed',sans-serif;font-size:52px;font-weight:800;color:var(--text);line-height:1;text-align:center;min-width:60px;display:block;transition:color 0.3s;will-change:transform,color;}
 .timer-warning{color:#f6ad55;animation:timer-tick 1s ease infinite;}
 .timer-critical{color:var(--red);animation:blink 0.5s infinite;}
 
@@ -210,7 +210,7 @@ select.form-input{cursor:pointer;}
 /* Avatars */
 .player-avatar{width:38px;height:38px;min-width:38px;min-height:38px;border-radius:50%;object-fit:cover;background:var(--border);flex-shrink:0;transition:transform var(--t),box-shadow var(--t);}
 .player-avatar:hover{transform:scale(1.12);box-shadow:0 0 10px rgba(240,180,41,0.3);}
-.player-avatar-lg{width:84px;height:84px;border-radius:50%;object-fit:cover;border:3px solid var(--gold-dim);background:var(--border);flex-shrink:0;transition:border-color var(--t-slow),transform var(--t-slow),box-shadow var(--t-slow);}
+.player-avatar-lg{width:84px;height:84px;border-radius:50%;object-fit:cover;border:3px solid var(--gold-dim);background:var(--border);flex-shrink:0;transition:border-color var(--t-slow),transform var(--t-slow),box-shadow var(--t-slow);will-change:transform,box-shadow;}
 .player-avatar-lg:hover{border-color:var(--gold);transform:scale(1.06);box-shadow:var(--shadow-gold);}
 
 /* Stats row */
@@ -795,15 +795,10 @@ select.form-input{cursor:pointer;}
   .card-title{font-size:15px;}
   .adv-card-body{flex-direction:column;gap:12px;}
   .adv-card-stats-grid{grid-template-columns:repeat(3,1fr);}
-}
-@media (max-width: 700px) {
-  .auction-grid{grid-template-columns:1fr!important;}
+  /* Absorbed from former 700px breakpoint: */
   .squad-sidebar{width:100%;}
-  .squad-table-wrap{max-height:240px!important;}
-  .team-set-slots-grid{grid-template-columns:1fr!important;}
-  .bid-area{padding:10px!important;}
-  .player-avatar-lg{width:60px!important;height:60px!important;}
-  .bid-stats{grid-template-columns:1fr 1fr;}
+  .squad-table-wrap{max-height:240px;}
+  .bid-area{padding:10px;}
   .navbar-logo{display:none;}
   .navbar-info{flex:1;}
 }
@@ -965,6 +960,7 @@ select.form-input{cursor:pointer;}
 
 /* Card shell */
 .sc-card {
+  will-change: transform, box-shadow;
   --sc-primary: #f0b429;
   --sc-glow:    rgba(240,180,41,0.25);
   --sc-secondary: #1a1a2e;
@@ -1302,6 +1298,7 @@ select.form-input{cursor:pointer;}
   isolation: isolate;
 }
 .toast {
+  will-change: transform, opacity;
   display: flex; align-items: flex-start; gap: 12px;
   background: #1a1e2e;
   border: 1px solid rgba(255,255,255,0.07);
@@ -2188,3 +2185,31 @@ input[type="number"].dm-input { width: 90px; flex: none; }
 .set-expired .sc-bid-btn,
 .set-expired .sc-bid-input{opacity:0.4;cursor:not-allowed;pointer-events:none;}
 .set-expired .sc-bid-btn{background:#4a5568 !important;color:#a0aec0 !important;}
+
+/* ── #10: Grace-period countdown shown after timer expires ── */
+#grace-countdown {
+  display: none;
+  text-align: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--gold);
+  padding: 4px 0 2px;
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+/* ── #1/#11: Bid history locked state ── */
+.bid-history-locked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+}
+.bh-lock-icon { font-size: 14px; flex-shrink: 0; }
+.bh-lock-msg  { line-height: 1.4; }

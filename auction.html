@@ -6,9 +6,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>BFL Auction — Live</title>
+  <!-- #20: PWA meta -->
+  <meta name="theme-color" content="#0a0c10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- #23: Preload font stylesheet to reduce FOUC -->
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" onload="this.rel='stylesheet'">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=58">
+  <link rel="stylesheet" href="css/styles.css?v=59">
 </head>
 <body>
 
@@ -109,6 +115,8 @@
         <div id="rtm-pending" style="display:none;"></div>
 
         <!-- Live player card (also hosts set auction view) -->
+        <!-- #10: Grace countdown — visible after timer hits 0 while waiting for auto-sell -->
+        <div id="grace-countdown"></div>
         <div id="player-card" style="display:none;">
           <!-- Advanced player card is injected here by JS -->
         </div>
@@ -197,7 +205,9 @@
 </div>
 
 <script src="js/localstorage-shim.js?v=58"></script>
-<script src="https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<!-- #21: jsdelivr primary CDN (more reliable for production), unpkg as fallback -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js" crossorigin="anonymous"
+  onerror="var s=document.createElement('script');s.src='https://unpkg.com/@supabase/supabase-js@2.39.3/dist/umd/supabase.js';document.head.appendChild(s);"></script>
 <script src="js/modal.js?v=58"></script>
 <script src="js/supabaseClient.js?v=58"></script>
 <script src="js/auction.js?v=58"></script>
