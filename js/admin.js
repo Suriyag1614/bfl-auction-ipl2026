@@ -425,6 +425,12 @@ async function pollAdminState() {
       await loadSetSlots(state.current_set_name);
       const tab = el('tab-sets');
       if (tab?.classList.contains('active')) renderSetLauncher();
+      // (Re)start autopilot watcher if not already running
+      if (!_setAutopilotTimer) {
+        const SENTINEL_MS2 = new Date('9000-01-01').getTime();
+        const rEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < SENTINEL_MS2);
+        if (rEnds.length) startSetAutopilotWatcher(Math.max(...rEnds));
+      }
     }
 
     const hash = [
@@ -1265,13 +1271,18 @@ function startTimer(endTime) {
     }
     if (expired) {
       stopTimer();
-      if (!autopilotEnabled) {
-        // Show warning countdown, then fire at 12s
-        showAutoSellWarning(12);
+      const graceSec = Number(currentState?.autopilot_delay_seconds
+                            ?? currentState?.autopilot_delay ?? 12);
+      if (autopilotEnabled) {
+        // ── Autopilot ON: fire tick_auction after grace, then poll every 5s ──
+        autoSellTimer = setTimeout(() => startAutopilotPoll(), graceSec * 1000);
+      } else {
+        // ── Autopilot OFF: show countdown warning, then poll until sold ──
+        showAutoSellWarning(graceSec);
         autoSellTimer = setTimeout(async () => {
           hideAutoSellWarning();
           if (currentState?.status === 'live' && !currentState?.rtm_pending) await forceSell();
-        }, 12000);
+        }, graceSec * 1000);
       }
     }
   }
@@ -1281,7 +1292,29 @@ function startTimer(endTime) {
 function stopTimer()     { clearInterval(timerInterval); timerInterval = null; }
 function clearAutoSell() {
   clearTimeout(autoSellTimer); autoSellTimer = null;
+  clearInterval(_autopilotPollId); _autopilotPollId = null;
   hideAutoSellWarning();
+}
+
+// ── Autopilot polling: calls tick_auction() every 5s until state moves ────────
+let _autopilotPollId = null;
+function startAutopilotPoll() {
+  stopAutopilotPoll();
+  async function attempt() {
+    if (currentState?.status !== 'live' || currentState?.rtm_pending) {
+      stopAutopilotPoll(); return;  // already sold/unsold/rtm — done
+    }
+    const { error } = await sb.rpc('tick_auction');
+    if (error) console.warn('[AutopilotPoll]', error.message);
+    await loadAuctionState();
+    // If still live after this tick (e.g. grace not passed server-side), keep polling
+    if (currentState?.status !== 'live') stopAutopilotPoll();
+  }
+  attempt(); // fire immediately
+  _autopilotPollId = setInterval(attempt, 5000);
+}
+function stopAutopilotPoll() {
+  clearInterval(_autopilotPollId); _autopilotPollId = null;
 }
 
 function showAutoSellWarning(totalSecs) {
@@ -2367,20 +2400,35 @@ async function renderSetLauncher() {
 
 function renderLiveSetPanel() {
   if (!activeSetSlots.length) return '';
-  const endMs = Math.max(...activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()));
 
-  // Start the live countdown ticker
+  // Detect paused state: when paused, DB sets bid_timer_end = '9999-12-31' sentinel.
+  // Filter that out to get the real countdown end time.
+  const _SENTINEL = new Date('9000-01-01').getTime();
+  const _allEnds  = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime());
+  const _realEnds = _allEnds.filter(ms => ms < _SENTINEL);
+  const _dbPaused = _realEnds.length === 0; // every slot has sentinel = fully paused
+
+  // Keep client flag in sync with DB truth
+  if (_dbPaused !== _setIsPaused) _setIsPaused = _dbPaused;
+
+  const endMs = _realEnds.length ? Math.max(..._realEnds) : 0;
+
+  // Only start the ticker when NOT paused — avoids 251B-second display
   clearInterval(adminSetTimerInterval);
-  adminSetTimerInterval = setInterval(() => {
-    const t = document.getElementById('admin-set-timer');
-    if (!t) { clearInterval(adminSetTimerInterval); return; }
-    const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
-    t.textContent = rem + 's';
-    t.className = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
-    if (rem <= 0) clearInterval(adminSetTimerInterval);
-  }, 250);
+  if (!_setIsPaused && endMs > 0) {
+    adminSetTimerInterval = setInterval(() => {
+      const t = document.getElementById('admin-set-timer');
+      if (!t) { clearInterval(adminSetTimerInterval); return; }
+      const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
+      t.textContent = rem + 's';
+      t.className = 'timer' + (rem <= 5 ? ' timer-critical' : rem <= 10 ? ' timer-warning' : '');
+      if (rem <= 0) clearInterval(adminSetTimerInterval);
+    }, 250);
+  }
 
-  const initRem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
+  const initRem      = _setIsPaused ? 0 : Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
+  const timerDisplay = _setIsPaused ? 'Paused' : (initRem + 's');
+  const timerClass   = _setIsPaused ? 'timer' : ('timer' + (initRem <= 5 ? ' timer-critical' : initRem <= 10 ? ' timer-warning' : ''));
 
   const slotCards = activeSetSlots.map(slot => {
     const player  = allPlayers.find(p => p.id === slot.player_id) || {};
@@ -2414,10 +2462,10 @@ function renderLiveSetPanel() {
       <div style="display:flex;align-items:center;gap:12px;">
         <div style="text-align:center;">
           <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Timer</div>
-          <div id="admin-set-timer" class="timer${initRem<=5?' timer-critical':initRem<=10?' timer-warning':''}" style="font-size:34px;">${initRem}s</div>
+          <div id="admin-set-timer" class="${timerClass}" style="font-size:34px;">${timerDisplay}</div>
         </div>
         <button class="btn btn-danger btn-sm" onclick="closeSetAuction()">Close Set</button>
-        <button id="pause-set-btn" class="btn btn-ghost btn-sm" onclick="togglePauseSet()" title="Pause/Resume set timer for all slots">⏸ Pause Set</button>
+        <button id="pause-set-btn" class="btn ${_setIsPaused?'btn-gold':'btn-ghost'} btn-sm" onclick="togglePauseSet()" title="Pause/Resume set timer for all slots">${_setIsPaused?'▶ Resume Set':'⏸ Pause Set'}</button>
         <button class="btn-cancel-set" onclick="cancelSetAuction()" title="Stop set auction without selling — returns all players to available pool">✕ Cancel Set</button>
       </div>
     </div>
@@ -2456,7 +2504,7 @@ async function closeSetAuction() {
   }
 
   toast('Set Complete', data.sold + ' sold, ' + data.unsold + ' unsold', 'success');
-  clearInterval(adminSetTimerInterval); _setIsPaused = false;
+  clearInterval(adminSetTimerInterval); _setIsPaused = false; clearTimeout(_setAutopilotTimer); clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   activeSetSlots = [];
   await Promise.all([loadPlayers(), loadTeams(), loadHistory(), loadAuctionState()]);
@@ -2478,7 +2526,7 @@ async function cancelSetAuction() {
   if (!cancelData?.success) return showError(cancelData?.error || 'Cancel failed');
 
   toast('Set Cancelled', setName + ' cancelled — all players returned to available pool', 'warn');
-  clearInterval(adminSetTimerInterval); _setIsPaused = false;
+  clearInterval(adminSetTimerInterval); _setIsPaused = false; clearTimeout(_setAutopilotTimer); clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
   if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
   activeSetSlots = [];
   await Promise.all([loadPlayers(), loadTeams(), loadAuctionState()]);
@@ -2490,27 +2538,33 @@ async function cancelSetAuction() {
 let _setIsPaused = false;
 
 async function togglePauseSet() {
-  const btn = document.getElementById('pause-set-btn');
   if (!_setIsPaused) {
-    // Pause the set — freeze all slot timers server-side
+    // ── PAUSE ────────────────────────────────────────────────
     const { data, error } = await sb.rpc('pause_set_auction');
     if (error || !data?.success) return showError(error?.message || data?.error || 'Pause failed');
     _setIsPaused = true;
+    // Stop the ticker immediately — no re-render needed (avoids HTML wipe + timer restart)
     clearInterval(adminSetTimerInterval);
-    if (btn) { btn.textContent = '▶ Resume Set'; btn.classList.remove('btn-ghost'); btn.classList.add('btn-gold'); }
+    // Update DOM directly so button/timer flip without full re-render
+    const btn = document.getElementById('pause-set-btn');
+    if (btn) { btn.textContent = '▶ Resume Set'; btn.className = 'btn btn-gold btn-sm'; }
     const timerEl = document.getElementById('admin-set-timer');
     if (timerEl) { timerEl.textContent = 'Paused'; timerEl.className = 'timer'; }
-    toast('Set Paused', 'All slot timers frozen — team bids disabled', 'info');
+    toast('Set Paused', 'All slot timers frozen — bidding disabled', 'info');
   } else {
-    // Resume the set — restore slot timers server-side
+    // ── RESUME ───────────────────────────────────────────────
     const { data, error } = await sb.rpc('resume_set_auction');
     if (error || !data?.success) return showError(error?.message || data?.error || 'Resume failed');
     _setIsPaused = false;
-    if (btn) { btn.textContent = '⏸ Pause Set'; btn.classList.add('btn-ghost'); btn.classList.remove('btn-gold'); }
-    toast('Set Resumed', 'Timers restored — bidding is live again', 'success');
-    // Reload slots so timer ticks restart from new end time
+    // Reload slots (now have real timer end), then re-render — renderLiveSetPanel
+    // will detect isPausedByDB=false and restart the interval with correct time.
     const setName = currentState?.current_set_name;
-    if (setName) { await loadSetSlots(setName); renderSetLauncher(); }
+    if (setName) {
+      await loadSetSlots(setName);
+      const tab = document.getElementById('tab-sets');
+      if (tab?.classList.contains('active')) await renderSetLauncher();
+    }
+    toast('Set Resumed', 'Timers restored — bidding is live again', 'success');
   }
 }
 
@@ -2520,6 +2574,39 @@ async function loadSetSlots(setName) {
     .eq('set_name', setName).eq('status', 'live');
   if (error) { console.warn('[SetSlots]', error.message); return; }
   activeSetSlots = (data||[]).map(s => ({ ...s, _highest_team: s.highest_team, _second_team: s.second_team }));
+}
+
+// ── Set autopilot: poll tick_auction once slots expire ────────
+let _setAutopilotTimer = null;
+let _setAutopilotPollId = null;
+function startSetAutopilotWatcher(endMs) {
+  clearTimeout(_setAutopilotTimer); clearInterval(_setAutopilotPollId);
+  const graceSec = Number(currentState?.autopilot_delay_seconds
+                        ?? currentState?.autopilot_delay ?? 12);
+  const msUntilGrace = Math.max(0, (endMs - serverNow())) + graceSec * 1000;
+
+  _setAutopilotTimer = setTimeout(() => {
+    // Fire once immediately, then poll every 5s until all slots close
+    async function attempt() {
+      if (currentState?.status !== 'set_live') {
+        clearInterval(_setAutopilotPollId); _setAutopilotPollId = null; return;
+      }
+      if (autopilotEnabled) {
+        const { error } = await sb.rpc('tick_auction');
+        if (error) console.warn('[SetAutopilotPoll]', error.message);
+      }
+      await loadAuctionState();
+      const setName = currentState?.current_set_name;
+      if (setName) await loadSetSlots(setName);
+      const tab = el('tab-sets');
+      if (tab?.classList.contains('active')) await renderSetLauncher();
+      if (currentState?.status !== 'set_live') {
+        clearInterval(_setAutopilotPollId); _setAutopilotPollId = null;
+      }
+    }
+    attempt();
+    _setAutopilotPollId = setInterval(attempt, 5000);
+  }, msUntilGrace);
 }
 
 function subscribeSetSlots(setName) {

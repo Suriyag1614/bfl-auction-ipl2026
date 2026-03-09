@@ -50,11 +50,12 @@ const stateHash = s => !s ? '' :
    s.current_highest_team_id, s.bid_timer_end, s.rtm_pending,
    s.rtm_team_id, s.last_player_result, s.last_player_id,
    s.last_sold_price, s.current_set_name, s.rtm_deadline,
-   s.last_set_name||'',
+   s.last_set_name||'', s.last_action_at||'',
    (s.unsold_player_ids||[]).length].join('|');
 
 // ── Status-change notification state ─────────────────────────
-let _prevToastState = { status: '', playerId: '', rtm: false, setName: '', result: '' };
+let _prevToastState = { status: '', playerId: '', rtm: false, setName: '', result: '', actionAt: '' };
+let _toastInitDone  = false; // skip toasts on very first poll (page load)
 
 function fireStatusToasts(state) {
   const cur = {
@@ -63,27 +64,32 @@ function fireStatusToasts(state) {
     rtm:      !!state.rtm_pending,
     setName:  state.current_set_name || '',
     result:   state.last_player_result || '',
+    actionAt: state.last_action_at || '',
   };
   const prev = _prevToastState;
-  const p    = state.current_player;
-  const pName = p?.name || 'Player';
 
-  // RTM triggered
-  if (cur.rtm && !prev.rtm) {
-    // RTM toast is handled separately in renderRTMPending
-  }
+  // Skip all toasts on the very first poll — just snapshot state
+  if (!_toastInitDone) { _toastInitDone = true; _prevToastState = cur; return; }
 
-  // New player went live (live + new player_id)
+  const p     = state.current_player;
+  const pName = p?.name || (state.last_player?.name) || 'Player';
+
+  // A new action happened when last_action_at changed
+  const newAction = cur.actionAt && cur.actionAt !== prev.actionAt;
+
+  // RTM triggered — handled in renderRTMPending, skip here
+
+  // New player went live
   if (cur.status === 'live' && cur.playerId && cur.playerId !== prev.playerId && !cur.rtm) {
     toast('Auction Started', pName + ' is now live — place your bids!', 'success');
   }
 
-  // Paused (was live or set_live, now paused)
+  // Paused
   if (cur.status === 'paused' && prev.status !== 'paused') {
     toast('Auction Paused', 'Bidding has been paused by admin', 'warn');
   }
 
-  // Resumed (was paused, now live, same player)
+  // Resumed
   if (cur.status === 'live' && prev.status === 'paused' && cur.playerId === prev.playerId) {
     toast('Auction Resumed', pName + ' — bidding is open again', 'info');
   }
@@ -93,24 +99,26 @@ function fireStatusToasts(state) {
     toast('Set Auction Live', cur.setName + ' — all players available to bid on!', 'success');
   }
 
-  // Back to waiting — determine why
-  if (cur.status === 'waiting' && prev.status !== 'waiting' && prev.status !== '') {
-    const result = state.last_player_result;
+  // Back to waiting (or: same waiting state but a new action happened = consecutive sell/unsold)
+  const waitingChanged = cur.status === 'waiting' && (prev.status !== 'waiting' || newAction);
+  if (waitingChanged) {
+    const result = cur.result;
+    const lp     = state.last_player?.name || pName;
+    const toTeam = state.last_sold_to_team || '?';
+    const price  = state.last_sold_price ? fmt(Number(state.last_sold_price)) : '';
     if (result === 'sold') {
-      const toTeam = state.last_sold_to_team || '?';
-      const price  = state.last_sold_price ? '₹' + Number(state.last_sold_price).toFixed(2) + ' Cr' : '';
       const isMyWin = state.last_sold_to_team === myTeam?.team_name;
       if (isMyWin) {
-        toast('Player Won!', (state.last_player?.name||'Player') + ' — ' + price, 'success');
+        toast('Player Won!', lp + (price ? ' — ' + price : ''), 'success');
       } else {
-        toast('Sold', (state.last_player?.name||'Player') + ' → ' + toTeam + (price?' for '+price:''), 'info');
+        toast('Sold', lp + ' → ' + toTeam + (price ? ' for ' + price : ''), 'info');
       }
     } else if (result === 'unsold') {
-      toast('Unsold', (state.last_player?.name||'Player') + ' went unsold', 'warn');
+      toast('Unsold', lp + ' went unsold', 'warn');
     } else if (result === 'cancelled') {
       toast('Cancelled', 'Player returned to available pool', 'info');
     } else if (result === 'set_done') {
-      toast('Set Complete', (state.current_set_name||prev.setName||'Set') + ' auction finished', 'success');
+      toast('Set Complete', (prev.setName || cur.setName || 'Set') + ' auction finished', 'success');
     } else if (prev.status === 'live' || prev.status === 'set_live') {
       toast('Auction Ended', 'Waiting for next player…', 'info');
     }
@@ -1632,8 +1640,21 @@ function stopTimer()    { clearInterval(timerInterval);    timerInterval    = nu
 
 let _setTimerEndMs = 0, _setTimerTotalSec = 60;
 let _setExpired = false;  // true when set auction timer has expired
+const _SET_TIMER_SENTINEL = new Date('9000-01-01').getTime(); // paused sentinel
 function startSetTimer(endMs) {
   stopSetTimer(); if (!endMs) return;
+
+  // Detect pause sentinel (9999-12-31 = bid_timer_end when set is paused)
+  if (endMs >= _SET_TIMER_SENTINEL) {
+    const t = el('set-timer');
+    if (t) { t.textContent = 'Paused'; t.className = 'timer'; }
+    const bar = el('set-timer-bar');
+    if (bar) { bar.style.width = '100%'; bar.className = 'timer-progress-bar tp-green'; }
+    document.querySelectorAll('.sc-bid-btn').forEach(b => { b.disabled = true; b.textContent = 'Paused'; });
+    document.querySelectorAll('.sc-bid-input').forEach(i => { i.disabled = true; });
+    return; // don't start ticker
+  }
+
   _setExpired = false; // reset on new set
   if (Math.abs(endMs - _setTimerEndMs) > 2000) {
     _setTimerEndMs    = endMs;
