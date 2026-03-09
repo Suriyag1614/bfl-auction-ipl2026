@@ -845,15 +845,16 @@ async function restartAuction() {
       if (e3) throw new Error('Clear slots: ' + e3.message);
     }
 
-    // Step 5: reset each team's purse individually using base_purse column
-    // base_purse stores each team's actual starting purse (added in migration 31).
-    // Falls back to 100 if column not yet present.
+    // Step 5: reset each team's purse to base_purse.
+    // base_purse = purse AFTER retentions (already has retention costs removed).
+    // Do NOT deduct retCost again — that caused double-deduction (e.g. GT: 75-25=50 wrong).
+    // Also reset rtm_cards_used = 0 (rtm_cards_total stays as set in schema — don't call
+    // compute_rtm_cards() which uses wrong formula 3-retentions and breaks RCB from 0→3).
     const { data: teams } = await sb.from('teams').select('id,base_purse');
     for (const t of (teams || [])) {
-      const retCost = retentionByTeam[t.id] || 0;
       const startingPurse = Number(t.base_purse ?? 100);
       const { error: e4 } = await sb.from('teams')
-        .update({ purse_remaining: startingPurse - retCost, rtm_cards_used: 0 })
+        .update({ purse_remaining: startingPurse, rtm_cards_used: 0 })
         .eq('id', t.id);
       if (e4) throw new Error('Reset purse: ' + e4.message);
     }
@@ -882,8 +883,8 @@ async function restartAuction() {
     }).eq('id', 1);
     if (e5) throw new Error('Reset state: ' + e5.message);
 
-    // Step 7: recompute RTM cards via RPC (this one always works)
-    await sb.rpc('compute_rtm_cards');
+    // NOTE: rtm_cards_total is left as-is (set correctly from Excel in schema).
+    // compute_rtm_cards() uses wrong formula (3-retentions) and breaks RCB (0→3).
 
     toast('Auction Restarted', 'All sold players cleared, purses reset to starting values', 'warn');
     await Promise.all([loadPlayers(), loadTeams(), loadAuctionState(), loadHistory()]);
