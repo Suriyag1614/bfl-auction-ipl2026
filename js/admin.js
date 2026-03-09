@@ -697,7 +697,7 @@ async function cancelLiveAuction() {
 
   // Fix #3: clear bid_log for this player (cancel = no history record needed)
   if (cancelledPlayerId) {
-    await sb.from('bid_log').delete().eq('player_id', cancelledPlayerId).catch(() => null);
+    try { await sb.from('bid_log').delete().eq('player_id', cancelledPlayerId); } catch(_) {}
   }
 
   const { error } = await sb.from('auction_state').update({
@@ -824,7 +824,7 @@ async function restartAuction() {
     const { data: blRows } = await sb.from('bid_log').select('id').limit(1);
     if (blRows !== null) {
       // bid_log may be large; delete all by always-true filter using inserted_at IS NOT NULL
-      await sb.from('bid_log').delete().not('id', 'is', null).catch(() => null);
+      try { await sb.from('bid_log').delete().not('id', 'is', null); } catch(_) {}
     }
 
     // Step 3: delete unsold_log — delete by known player ids to give PostgREST a WHERE
@@ -1315,10 +1315,7 @@ function startTimer(endTime) {
           await forceSell();
         }
       }, graceSec * 1000);
-      // ALSO: if server autopilot flag is on, fire tick_auction in parallel as extra guarantee
-      if (autopilotEnabled) {
-        setTimeout(() => startAutopilotPoll(), graceSec * 1000);
-      }
+      // (Server-side edge function handles autopilot_enabled separately)
     }
   }
   tick();
@@ -1333,23 +1330,27 @@ function clearAutoSell() {
 
 // ── Autopilot polling: calls tick_auction() every 5s until state moves ────────
 let _autopilotPollId = null;
+let _autopilotTargetPlayer = null; // guard against firing on wrong player
 function startAutopilotPoll() {
   stopAutopilotPoll();
+  _autopilotTargetPlayer = currentState?.current_player_id || null;
   async function attempt() {
-    if (currentState?.status !== 'live' || currentState?.rtm_pending) {
-      stopAutopilotPoll(); return;  // already sold/unsold/rtm — done
+    // Safety: bail if player changed (new auction started) or no longer live
+    if (currentState?.current_player_id !== _autopilotTargetPlayer ||
+        currentState?.status !== 'live' || currentState?.rtm_pending) {
+      stopAutopilotPoll(); return;
     }
     const { error } = await sb.rpc('tick_auction');
     if (error) console.warn('[AutopilotPoll]', error.message);
     await loadAuctionState();
-    // If still live after this tick (e.g. grace not passed server-side), keep polling
     if (currentState?.status !== 'live') stopAutopilotPoll();
   }
-  attempt(); // fire immediately
+  attempt();
   _autopilotPollId = setInterval(attempt, 5000);
 }
 function stopAutopilotPoll() {
   clearInterval(_autopilotPollId); _autopilotPollId = null;
+  _autopilotTargetPlayer = null;
 }
 
 function showAutoSellWarning(totalSecs) {
