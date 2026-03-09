@@ -1758,6 +1758,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-size: 14px;
   padding: 9px 12px;
   transition: border-color 0.15s, background 0.15s;
+  appearance: none;
   -webkit-appearance: none;
 }
 .dm-input:focus {
