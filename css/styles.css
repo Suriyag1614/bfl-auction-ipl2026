@@ -259,7 +259,7 @@ select.form-input{cursor:pointer;}
 /* ═══════════════════════════════════════════════════════
    AUCTION — TEAM VIEW
 ═══════════════════════════════════════════════════════ */
-.auction-grid{display:grid;grid-template-columns:1fr 0.4fr;gap:20px;padding:16px 0;min-width:0;}
+.auction-grid{display:grid;grid-template-columns:1fr 320px;gap:20px;padding:16px 0;min-width:0;}
 .auction-grid > *{min-width:0;}
 /* Sidebar: don't use overflow:hidden — it breaks sticky headers inside */
 .squad-sidebar{min-width:0;}
@@ -1351,8 +1351,8 @@ select.form-input{cursor:pointer;}
 .toast-info    .toast-icon { background: rgba(49,130,206,0.18); color: #63b3ed; }
 .toast-rtm     .toast-icon { background: rgba(128,90,213,0.18); color: #b794f4; }
 
-/* Icon pngs via content — use text chars instead */
-.toast-icon png { width:16px; height:16px; stroke-width:2.5; }
+/* Icon SVGs via content — use text chars instead */
+.toast-icon svg { width:16px; height:16px; stroke-width:2.5; }
 
 /* Text block */
 .toast-body { flex: 1; min-width: 0; }
@@ -1758,7 +1758,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-size: 14px;
   padding: 9px 12px;
   transition: border-color 0.15s, background 0.15s;
-  appearance: none;
   -webkit-appearance: none;
 }
 .dm-input:focus {
@@ -2288,4 +2287,102 @@ input[type="number"].dm-input { width: 90px; flex: none; }
   .footer-logo-t20 { height: 34px; }
   .footer-copy     { font-size: 12px; }
   .footer-content  { padding: 16px 16px 14px; gap: 10px; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DAY WINDOW TIMER + RTM WINDOW  (v36)
+══════════════════════════════════════════════════════════════ */
+
+/* ── Day Modal: new elements ──────────────────────────────────── */
+.dm-duration-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-top: 8px;
+  letter-spacing: 0.5px;
+}
+.dm-badge-rtm {
+  background: rgba(139,92,246,0.15);
+  color: #c4b5fd;
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+.dm-phase-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dm-phase-live    { color: var(--green); }
+.dm-phase-ended   { color: var(--red);   }
+.dm-phase-badge-rtm { color: rgba(139,92,246,0.7); }
+.dm-phase-rtm-live  { color: #c4b5fd !important; }
+.dm-cd-rtm { color: #c4b5fd !important; }
+.dm-cb-purple {
+  background: linear-gradient(90deg, #7c3aed, #a855f7) !important;
+  box-shadow: 0 0 8px rgba(139,92,246,0.5) !important;
+}
+
+/* ── Day Window Bar (auction.html — progress bar at top of page) ── */
+.day-window-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  background: rgba(0,0,0,0.35);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.day-window-bar-rtm {
+  background: rgba(139,92,246,0.08);
+  border-bottom-color: rgba(139,92,246,0.25);
+}
+.day-window-bar-ended {
+  background: rgba(229,62,62,0.07);
+  border-bottom-color: rgba(229,62,62,0.2);
+  color: var(--muted);
+}
+.dwb-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex-shrink: 0;
+  min-width: 90px;
+}
+.dwb-time {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--gold);
+  flex-shrink: 0;
+  min-width: 80px;
+}
+.dwb-track {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.dwb-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.8s linear;
+}
+.dwb-bar-green  { background: var(--green); box-shadow: 0 0 6px rgba(72,187,120,0.4); }
+.dwb-bar-amber  { background: var(--gold);  box-shadow: 0 0 6px rgba(240,180,41,0.4); }
+.dwb-bar-red    { background: var(--red);   box-shadow: 0 0 6px rgba(229,62,62,0.4);  }
+.dwb-bar-purple { background: linear-gradient(90deg,#7c3aed,#a855f7); box-shadow: 0 0 6px rgba(139,92,246,0.5); }
+
+@media (max-width: 480px) {
+  .day-window-bar { gap: 8px; padding: 6px 12px; }
+  .dwb-label { min-width: 70px; font-size: 8px; }
+  .dwb-time  { font-size: 12px; min-width: 60px; }
 }

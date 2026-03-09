@@ -87,64 +87,38 @@ async function doLogout() { await sb.auth.signOut(); location.href = 'index.html
 // ── Auction Day Modal ────────────────────────────────────────
 let _dmDayVal = 1;
 let _dmCountdownInterval = null;
-let _dmBidTimerOverride = false;  // true = user manually set bid timer
 
 async function promptSetDay() {
   const current = el('stat-day')?.textContent?.replace('Day ','').trim();
   _dmDayVal = parseInt(current) || 1;
   el('dm-day-val').textContent = _dmDayVal;
 
-  // Reset timer override state
-  _dmBidTimerOverride = false;
-
-  // Pre-fill timer fields from current DB values if available
+  // Pre-fill fields from DB
   try {
     const { data: aState } = await sb.from('auction_state')
-      .select('bid_duration_seconds,set_duration_seconds,bid_timer_default,set_timer_default,rtm_timeout_seconds,rtm_accept_timer_seconds,auction_day,day_start,day_end').eq('id',1).maybeSingle();
+      .select('bid_duration_seconds,bid_timer_default,rtm_timeout_seconds,rtm_accept_timer_seconds,auction_day,day_start,day_end,rtm_window_end')
+      .eq('id',1).maybeSingle();
     if (aState) {
-      const bidDef = el('dm-bid-timer');
-      const setDef = el('dm-set-timer');
-      const rtmDef = el('dm-rtm-timer');
-      // bid timer: prefer bid_timer_default, fallback to bid_duration_seconds
       const bidVal = aState.bid_timer_default || aState.bid_duration_seconds;
-      if (bidDef && bidVal) { bidDef.value = bidVal; updateTimerHint('dm-bid-timer', 'dm-timer-hint'); }
-      // set timer: prefer set_timer_default/set_duration_seconds
-      const setVal = aState.set_timer_default || aState.set_duration_seconds;
-      if (setDef && setVal) { setDef.value = setVal; updateTimerHint('dm-set-timer', 'dm-set-timer-hint'); }
-      // RTM timer: prefer rtm_accept_timer_seconds, fallback rtm_timeout_seconds
+      if (bidVal) { el('dm-bid-timer').value = bidVal; updateTimerHint('dm-bid-timer','dm-timer-hint'); }
       const rtmVal = aState.rtm_accept_timer_seconds || aState.rtm_timeout_seconds;
-      if (rtmDef && rtmVal) { rtmDef.value = rtmVal; }
+      if (rtmVal) el('dm-rtm-timer').value = rtmVal;
       if (aState.auction_day) { _dmDayVal = aState.auction_day; el('dm-day-val').textContent = _dmDayVal; }
-      if (aState.day_start) {
-        const t = new Date(aState.day_start);
-        const hhmm = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
-        const startEl = el('dm-start'); if (startEl && !startEl.value) startEl.value = hhmm;
-      }
-      if (aState.day_end) {
-        const t = new Date(aState.day_end);
-        const hhmm = String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
-        const endEl = el('dm-end'); if (endEl && !endEl.value) endEl.value = hhmm;
-      }
+      const _toHHMM = iso => { if (!iso) return ''; const t = new Date(iso); return String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'); };
+      if (aState.day_start)      el('dm-start').value   = _toHHMM(aState.day_start);
+      if (aState.day_end)        el('dm-end').value     = _toHHMM(aState.day_end);
+      if (aState.rtm_window_end) el('dm-rtm-end').value = _toHHMM(aState.rtm_window_end);
     }
   } catch(_) {}
 
-  _dmUpdateBidTimerHint();
-
+  _dmUpdateDurationBadge();
   el('day-modal').style.display = 'flex';
   _dmCountdownInterval = setInterval(_updateDmCountdown, 500);
   _updateDmCountdown();
 
-  // Live update on any input change
-  ['dm-start','dm-end','dm-bid-timer','dm-set-timer'].forEach(id => {
+  ['dm-start','dm-end','dm-rtm-end'].forEach(id => {
     const inp = el(id);
-    if (inp) {
-      inp.oninput = () => {
-        if (id === 'dm-bid-timer' || id === 'dm-set-timer') _dmBidTimerOverride = true;
-        _updateDmCountdown();
-        _dmUpdateBidTimerHint();
-      };
-      inp.onchange = inp.oninput;
-    }
+    if (inp) { inp.oninput = inp.onchange = () => { _dmUpdateDurationBadge(); _updateDmCountdown(); }; }
   });
 }
 
@@ -159,153 +133,173 @@ function adjustDay(delta) {
   el('dm-day-val').textContent = _dmDayVal;
 }
 
-function dmResetBidTimer() {
-  _dmBidTimerOverride = false;
-  _dmAutoCalcBidTimer();
-  _dmUpdateBidTimerHint();
-}
-
-function _dmAutoCalcBidTimer() {
-  // Derive default timers from session length — use today's date for calculation
+// Show the auction window duration as a readable badge
+function _dmUpdateDurationBadge() {
+  const badge = el('dm-duration-badge'); if (!badge) return;
   const today = new Date().toLocaleDateString('en-CA');
   const start = el('dm-start')?.value;
   const end   = el('dm-end')?.value;
-  if (!start || !end) return;
-  const sessionMs = new Date(today+'T'+end).getTime() - new Date(today+'T'+start).getTime();
-  if (sessionMs <= 0) return;
-  // Single player: ~1% of session, capped 30-120s
-  const autoSingle = Math.min(120, Math.max(30, Math.round(sessionMs / 1000 / 100 / 5) * 5));
-  el('dm-bid-timer').value = autoSingle;
-  // Set timer: 2× single player, capped 60-300s
-  const autoSet = Math.min(300, Math.max(60, autoSingle * 2));
-  const setTimerEl = el('dm-set-timer');
-  if (setTimerEl) setTimerEl.value = autoSet;
-}
-
-function _dmUpdateBidTimerHint() {
-  const hint    = el('dm-timer-hint');
-  const setHint = el('dm-set-timer-hint');
-  const calc    = el('dm-auto-calc');
-  if (!hint || !calc) return;
-  if (_dmBidTimerOverride) {
-    hint.textContent = 'Custom'; hint.style.color = 'var(--gold)';
-    if (setHint) { setHint.textContent = 'Custom'; setHint.style.color = 'var(--gold)'; }
-    calc.style.opacity = '1';
-  } else {
-    hint.textContent = 'Auto'; hint.style.color = 'var(--muted)';
-    if (setHint) { setHint.textContent = 'Auto'; setHint.style.color = 'var(--muted)'; }
-    calc.style.opacity = '0.5';
-    _dmAutoCalcBidTimer();
-  }
+  if (!start || !end) { badge.textContent = '—'; return; }
+  const ms = new Date(today+'T'+end).getTime() - new Date(today+'T'+start).getTime();
+  if (ms <= 0) { badge.textContent = '—'; badge.style.color = 'var(--danger)'; return; }
+  const h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000);
+  badge.textContent = (h > 0 ? h + 'h ' : '') + m + 'm auction window';
+  badge.style.color = 'var(--gold)';
 }
 
 function _updateDmCountdown() {
-  const today = new Date().toLocaleDateString('en-CA');
-  const start = el('dm-start')?.value;
-  const end   = el('dm-end')?.value;
-  const cdEl  = el('dm-countdown');
-  const barEl = el('dm-countdown-bar');
-  if (!cdEl) return;
+  const today  = new Date().toLocaleDateString('en-CA');
+  const start  = el('dm-start')?.value;
+  const end    = el('dm-end')?.value;
+  const rtmEnd = el('dm-rtm-end')?.value;
+  const now    = serverNow();
 
-  if (!end) { cdEl.textContent = '—'; return; }
-
-  const endMs   = new Date(today + 'T' + end).getTime();
-  const startMs = start ? new Date(today + 'T' + start).getTime() : null;
-  const rem     = endMs - serverNow();
-  const totalDur = startMs ? (endMs - startMs) : null;
-
-  if (rem <= 0) {
-    cdEl.textContent = 'Session ended';
-    cdEl.className = 'dm-countdown-val dm-cd-ended';
-    if (barEl) barEl.style.width = '0%';
-    return;
+  // ── Auction window ─────────────────────────────────────────
+  const cdEl      = el('dm-countdown');
+  const barEl     = el('dm-countdown-bar');
+  const phaseEl   = el('dm-auction-phase');
+  if (cdEl) {
+    if (!end) { cdEl.textContent = '—'; }
+    else {
+      const endMs   = new Date(today+'T'+end).getTime();
+      const startMs = start ? new Date(today+'T'+start).getTime() : null;
+      const rem     = endMs - now;
+      const totalDur = startMs ? (endMs - startMs) : null;
+      if (rem <= 0) {
+        cdEl.textContent = 'Ended'; cdEl.className = 'dm-countdown-val dm-cd-ended';
+        if (barEl) { barEl.style.width = '0%'; barEl.className = 'dm-countdown-bar'; }
+        if (phaseEl) { phaseEl.textContent = 'Ended'; phaseEl.className = 'dm-phase-badge dm-phase-ended'; }
+      } else {
+        const h = Math.floor(rem/3600000), m = Math.floor((rem%3600000)/60000), s = Math.floor((rem%60000)/1000);
+        cdEl.textContent = (h > 0 ? h+'h ' : '') + String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s';
+        const pct = totalDur ? Math.max(0,Math.min(100,(rem/totalDur)*100)) : 100;
+        const cls = pct > 50 ? 'dm-cd-green' : pct > 25 ? 'dm-cd-amber' : 'dm-cd-red';
+        cdEl.className = 'dm-countdown-val ' + cls;
+        if (barEl) { barEl.style.width = pct+'%'; barEl.className = 'dm-countdown-bar '+cls; }
+        if (phaseEl) {
+          const started = startMs && now >= startMs;
+          phaseEl.textContent  = started ? 'Live' : 'Not started';
+          phaseEl.className    = 'dm-phase-badge ' + (started ? 'dm-phase-live' : '');
+        }
+      }
+    }
   }
 
-  const h   = Math.floor(rem / 3600000);
-  const m   = Math.floor((rem % 3600000) / 60000);
-  const s   = Math.floor((rem % 60000) / 1000);
-  const hms = (h > 0 ? h + 'h ' : '') + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
-  cdEl.textContent = hms;
-
-  // Color and bar
-  const pct = totalDur ? Math.max(0, Math.min(100, (rem / totalDur) * 100)) : 100;
-  const cls = pct > 50 ? 'dm-cd-green' : pct > 25 ? 'dm-cd-amber' : 'dm-cd-red';
-  cdEl.className = 'dm-countdown-val ' + cls;
-  if (barEl) {
-    barEl.style.width = pct + '%';
-    barEl.className = 'dm-countdown-bar ' + cls;
+  // ── RTM window ─────────────────────────────────────────────
+  const rtmCdEl    = el('dm-rtm-countdown');
+  const rtmBarEl   = el('dm-rtm-bar');
+  const rtmPhaseEl = el('dm-rtm-phase');
+  if (rtmCdEl) {
+    if (!rtmEnd || !end) { rtmCdEl.textContent = '—'; }
+    else {
+      const auctionEndMs = new Date(today+'T'+end).getTime();
+      const rtmEndMs     = new Date(today+'T'+rtmEnd).getTime();
+      const rtmDur       = rtmEndMs - auctionEndMs;
+      const rtmRem       = rtmEndMs - now;
+      if (rtmDur <= 0) {
+        rtmCdEl.textContent = '—'; rtmCdEl.className = 'dm-countdown-val dm-cd-rtm';
+        if (rtmPhaseEl) { rtmPhaseEl.textContent = 'Invalid'; rtmPhaseEl.className = 'dm-phase-badge dm-phase-ended'; }
+      } else if (rtmRem <= 0) {
+        rtmCdEl.textContent = 'Ended'; rtmCdEl.className = 'dm-countdown-val dm-cd-ended';
+        if (rtmPhaseEl) { rtmPhaseEl.textContent = 'Ended'; rtmPhaseEl.className = 'dm-phase-badge dm-phase-ended'; }
+        if (rtmBarEl) { rtmBarEl.style.width = '0%'; }
+      } else {
+        const h = Math.floor(rtmRem/3600000), m = Math.floor((rtmRem%3600000)/60000), s = Math.floor((rtmRem%60000)/1000);
+        rtmCdEl.textContent = (h > 0 ? h+'h ' : '') + String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s';
+        rtmCdEl.className = 'dm-countdown-val dm-cd-rtm';
+        const pct = Math.max(0,Math.min(100,(rtmRem/rtmDur)*100));
+        if (rtmBarEl) { rtmBarEl.style.width = pct+'%'; }
+        if (rtmPhaseEl) {
+          const inRtmWindow = now >= auctionEndMs;
+          rtmPhaseEl.textContent = inRtmWindow ? 'Active' : 'Pending';
+          rtmPhaseEl.className   = 'dm-phase-badge dm-phase-badge-rtm ' + (inRtmWindow ? 'dm-phase-rtm-live' : '');
+        }
+      }
+    }
   }
-
-  // Auto-update bid timer if not overridden
-  if (!_dmBidTimerOverride) _dmAutoCalcBidTimer();
 }
 
 async function saveDaySettings() {
   const saveBtn = el('dm-save-btn');
   if (saveBtn) { if (saveBtn._inFlight) return; saveBtn._inFlight = true; saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-  const today    = new Date().toLocaleDateString('en-CA');
-  const start    = el('dm-start')?.value;
-  const end      = el('dm-end')?.value;
+
+  const today      = new Date().toLocaleDateString('en-CA');
+  const start      = el('dm-start')?.value;
+  const end        = el('dm-end')?.value;
+  const rtmEndVal  = el('dm-rtm-end')?.value;
   const bidTimerRaw = parseInt(el('dm-bid-timer')?.value) || 60;
-  const setTimerRaw = parseInt(el('dm-set-timer')?.value) || 90;
   const rtmTimerRaw = parseInt(el('dm-rtm-timer')?.value) || 60;
   const bidTimer    = Math.max(30, Math.min(600, bidTimerRaw));
-  const setTimer    = Math.max(30, Math.min(1800, setTimerRaw));
   const rtmTimer    = Math.max(15, Math.min(300, rtmTimerRaw));
-  // Update inputs to reflect clamped values
   if (el('dm-bid-timer')) { el('dm-bid-timer').value = bidTimer; updateTimerHint('dm-bid-timer','dm-timer-hint'); }
-  if (el('dm-set-timer')) { el('dm-set-timer').value = setTimer; updateTimerHint('dm-set-timer','dm-set-timer-hint'); }
 
-  // Validate HH:MM time format before converting to ISO
   const _timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
-  if (start && !_timeRe.test(start)) {
-    if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
-    toast('Invalid Time', 'Start time must be HH:MM (e.g. 14:00)', 'error'); return;
-  }
-  if (end && !_timeRe.test(end)) {
-    if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
-    toast('Invalid Time', 'End time must be HH:MM (e.g. 21:00)', 'error'); return;
-  }
-  const startIso = start ? new Date(today + 'T' + start).toISOString() : null;
-  const endIso   = end   ? new Date(today + 'T' + end).toISOString()   : null;
+  const _fail = (msg) => { toast('Invalid Input', msg, 'error'); if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save & Publish'; } };
 
-  // Single atomic update — all timer fields + day/session in one call
+  if (start && !_timeRe.test(start)) return _fail('Start time must be HH:MM');
+  if (end   && !_timeRe.test(end))   return _fail('Auction End must be HH:MM');
+  if (rtmEndVal && !_timeRe.test(rtmEndVal)) return _fail('RTM Window End must be HH:MM');
+
+  // Validate window ordering
+  if (start && end) {
+    const ms = new Date(today+'T'+end).getTime() - new Date(today+'T'+start).getTime();
+    if (ms <= 0) return _fail('Auction End must be after Start');
+  }
+  if (end && rtmEndVal) {
+    const ms = new Date(today+'T'+rtmEndVal).getTime() - new Date(today+'T'+end).getTime();
+    if (ms <= 0) return _fail('RTM Window End must be after Auction End');
+  }
+
+  const startIso  = start      ? new Date(today+'T'+start).toISOString()      : null;
+  const endIso    = end        ? new Date(today+'T'+end).toISOString()         : null;
+  const rtmEndIso = rtmEndVal  ? new Date(today+'T'+rtmEndVal).toISOString()   : null;
+
   const update = {
     auction_day:              _dmDayVal,
-    // Timers — bid_duration_seconds drives start_auction + start_set_auction (fallback)
     bid_duration_seconds:     bidTimer,
     bid_timer_default:        bidTimer,
-    // set_duration_seconds drives start_set_auction (preferred column, added in migration 30)
-    set_duration_seconds:     setTimer,
-    set_timer_default:        setTimer,
-    // RTM timers — rtm_timeout_seconds is the original column; rtm_accept_timer_seconds added in v26
+    // set_duration_seconds still saved for legacy fallback
+    set_duration_seconds:     bidTimer,
+    set_timer_default:        bidTimer,
     rtm_timeout_seconds:      rtmTimer,
     rtm_accept_timer_seconds: rtmTimer,
   };
-  if (startIso) update.day_start = startIso;
-  if (endIso)   update.day_end   = endIso;
+  if (startIso)  update.day_start       = startIso;
+  if (endIso)    update.day_end         = endIso;
+  // rtm_window_end — only update if migration 36 ran (column exists)
+  if (rtmEndIso) update.rtm_window_end  = rtmEndIso;
+  else           update.rtm_window_end  = null;
 
   const { error } = await sb.from('auction_state').update(update).eq('id', 1);
   if (error) {
-    // Some columns may not exist yet (migration not run) — fall back to core columns only
-    const coreUpdate = {
-      auction_day:          _dmDayVal,
-      bid_duration_seconds: bidTimer,
-      rtm_timeout_seconds:  rtmTimer,
-    };
-    if (startIso) coreUpdate.day_start = startIso;
-    if (endIso)   coreUpdate.day_end   = endIso;
-    const { error: e2 } = await sb.from('auction_state').update(coreUpdate).eq('id', 1);
-    if (e2) { toast('Save Failed', e2.message, 'error'); if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; } return; }
-    toast('Partially Saved', 'Core timers saved. Run migration 30 to unlock all timer fields.', 'warn');
+    // Fallback: column may not exist yet
+    const fallback = { auction_day: _dmDayVal, bid_duration_seconds: bidTimer, rtm_timeout_seconds: rtmTimer };
+    if (startIso) fallback.day_start = startIso;
+    if (endIso)   fallback.day_end   = endIso;
+    const { error: e2 } = await sb.from('auction_state').update(fallback).eq('id', 1);
+    if (e2) { _fail(e2.message); return; }
+    toast('Partially Saved', 'Core fields saved. Run migration 36 to enable RTM Window.', 'warn');
   } else {
-    toast('Day Settings Saved', 'Day ' + _dmDayVal + ' · Single ' + bidTimer + 's · Set ' + setTimer + 's · RTM ' + rtmTimer + 's', 'success');
+    const parts = ['Day '+_dmDayVal];
+    if (start && end) parts.push(start+'→'+end);
+    if (rtmEndVal) parts.push('RTM→'+rtmEndVal);
+    toast('Day Settings Saved', parts.join(' · '), 'success');
   }
 
   const dayEl = el('stat-day');
-  if (dayEl) { dayEl.textContent = 'Day ' + _dmDayVal; dayEl.closest('.stat-chip')?.style.setProperty('border-color','var(--gold-dim)'); }
-  if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save Settings'; }
+  if (dayEl) { dayEl.textContent = 'Day '+_dmDayVal; dayEl.closest('.stat-chip')?.style.setProperty('border-color','var(--gold-dim)'); }
+  if (saveBtn) { saveBtn._inFlight = false; saveBtn.disabled = false; saveBtn.textContent = 'Save & Publish'; }
   closeDayModal();
+}
+
+// ── Manual RTM Window trigger (admin can start it early/manually) ──────
+async function adminStartRTMWindow() {
+  if (!confirm('Start RTM Window now? This will queue all today\'s RTM-eligible players.')) return;
+  const { data, error } = await sb.rpc('start_rtm_window');
+  if (error || !data?.success) { toast('RTM Window Error', error?.message || data?.error || 'Failed', 'error'); return; }
+  if (data.result === 'no_rtm_players') { toast('RTM Window', 'No RTM-eligible players sold today', 'info'); return; }
+  toast('RTM Window Started', data.queue + ' player(s) in queue', 'success');
+  await fetchState();
 }
 
 async function setAuctionDay(day) {
@@ -430,7 +424,7 @@ async function pollAdminState() {
   // Lightweight state check — only do heavy reload if something changed
   try {
     const { data: state } = await sb.from('auction_state')
-      .select('status,current_player_id,current_highest_bid,current_highest_team_id,bid_timer_end,rtm_pending,rtm_team_id,last_player_id,current_set_name,unsold_player_ids,autopilot_enabled,last_action_at')
+      .select('status,current_player_id,current_highest_bid,current_highest_team_id,bid_timer_end,rtm_pending,rtm_team_id,last_player_id,current_set_name,unsold_player_ids,autopilot_enabled,last_action_at,rtm_window_active,day_end')
       .eq('id', 1).maybeSingle();
     if (!state) return;
 
@@ -452,7 +446,7 @@ async function pollAdminState() {
       state.current_highest_team_id, state.bid_timer_end, state.rtm_pending,
       state.rtm_team_id, state.last_player_id, state.current_set_name,
       (state.unsold_player_ids||[]).length, state.autopilot_enabled,
-      state.last_action_at
+      state.last_action_at, state.rtm_window_active
     ].join('|');
     if (hash === _lastAdminStateHash) return; // nothing changed
     _lastAdminStateHash = hash;
@@ -1140,8 +1134,9 @@ function renderAuctionState(state) {
   }
   const statusEl = el('auction-status');
   const labels   = { waiting:'Waiting', live:'LIVE', sold:'Sold', paused:'Paused', set_live:'SET LIVE' };
-  statusEl.textContent = state.rtm_pending ? 'RTM' : (labels[state.status] || state.status);
-  statusEl.className   = 'status-badge status-' + (state.rtm_pending ? 'rtm' : state.status);
+  const isRTMWindow = !!state.rtm_window_active;
+  statusEl.textContent = state.rtm_pending ? 'RTM' : isRTMWindow ? 'RTM WINDOW' : (labels[state.status] || state.status);
+  statusEl.className   = 'status-badge status-' + (state.rtm_pending ? 'rtm' : isRTMWindow ? 'rtm' : state.status);
 
   const isLive   = state.status === 'live';
   const isPaused = state.status === 'paused';
@@ -1247,6 +1242,7 @@ function renderAuctionState(state) {
     el('live-block').style.display = 'none';
     el('no-player').style.display  = '';
     el('no-player').textContent =
+      state.rtm_window_active && !state.rtm_pending ? 'RTM Window — processing queue…' :
       state.status === 'sold'    ? 'Sold — select next player.' :
       state.status === 'set_live'? `Set Live: ${state.current_set_name}` :
       unsoldIds.size > 0         ? `Waiting — ${unsoldIds.size} unsold player(s).` :
@@ -1263,23 +1259,54 @@ function renderRTMAdminBlock(state) {
     const controls = el('admin-controls');
     if (controls) controls.insertBefore(block, controls.firstChild);
   }
+
+  const inWindow = !!state.rtm_window_active;
+  const queueLen = Array.isArray(state.day_rtm_queue) ? state.day_rtm_queue.length : 0;
+
   if (state.rtm_pending) {
     const deadlineMs = state.rtm_deadline ? new Date(state.rtm_deadline).getTime() : null;
     const remInit = deadlineMs ? Math.max(0, Math.ceil((deadlineMs - serverNow()) / 1000)) : null;
+    const windowTag = inWindow
+      ? `<span style="font-size:10px;background:rgba(139,92,246,0.2);color:#c4b5fd;border-radius:4px;padding:2px 6px;margin-left:6px;">RTM WINDOW · ${queueLen} after this</span>`
+      : '';
     block.innerHTML = `
       <div class="rtm-admin-banner" style="position:relative;">
         ${remInit !== null ? `<div id="rtm-admin-countdown" style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;color:var(--gold);position:absolute;top:10px;right:12px;">${remInit}s</div>` : ''}
-        <span class="rtm-admin-title">RTM PENDING</span>
-        <span class="rtm-admin-sub">${state.rtm_team?.team_name || '?'} · Match: <strong>${fmt(state.rtm_match_price||0)}</strong>${remInit !== null ? ' · <span style="color:var(--muted);font-size:11px;">auto-declines when timer hits 0</span>' : ''}</span>
+        <span class="rtm-admin-title">RTM PENDING${windowTag}</span>
+        <span class="rtm-admin-sub">${state.rtm_team?.team_name || '?'} · Match: <strong>${fmt(state.rtm_match_price||0)}</strong>${state.current_player?.name ? ' · Player: <strong>'+state.current_player.name+'</strong>' : ''}${remInit !== null ? ' · <span style="color:var(--muted);font-size:11px;">auto-declines when timer hits 0</span>' : ''}</span>
         <div style="display:flex;gap:8px;margin-top:8px;">
           <button class="btn btn-gold btn-sm" onclick="adminExerciseRTM(true)">✓ Accept RTM</button>
           <button class="btn btn-ghost btn-sm" onclick="adminExerciseRTM(false)">✗ Decline</button>
         </div>
       </div>`;
     if (deadlineMs) startAdminRTMCountdown(deadlineMs);
-  } else {
+  } else if (inWindow && !state.rtm_pending) {
+    // Window active but between items — brief transition state
     stopAdminRTMCountdown();
-    block.innerHTML = '';
+    block.innerHTML = `
+      <div class="rtm-admin-banner" style="background:rgba(139,92,246,0.08);border-color:rgba(139,92,246,0.3);">
+        <span class="rtm-admin-title" style="color:#c4b5fd;">RTM WINDOW ACTIVE</span>
+        <span class="rtm-admin-sub">${queueLen} player(s) remaining in queue — processing…</span>
+      </div>`;
+  } else {
+    // Check if day ended + RTM window available but not started
+    const dayEndMs = state.day_end ? new Date(state.day_end).getTime() : null;
+    const rtmWindowEndMs = state.rtm_window_end ? new Date(state.rtm_window_end).getTime() : null;
+    const now = serverNow();
+    if (dayEndMs && now >= dayEndMs && rtmWindowEndMs && now < rtmWindowEndMs && !inWindow) {
+      stopAdminRTMCountdown();
+      block.innerHTML = `
+        <div class="rtm-admin-banner" style="background:rgba(139,92,246,0.08);border-color:rgba(139,92,246,0.4);">
+          <span class="rtm-admin-title" style="color:#c4b5fd;">RTM WINDOW READY</span>
+          <span class="rtm-admin-sub">Auction day ended. RTM window is open. Click to process RTM queue for today.</span>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn btn-sm" style="background:rgba(139,92,246,0.2);color:#c4b5fd;border:1px solid rgba(139,92,246,0.5);" onclick="adminStartRTMWindow()">▶ Start RTM Window</button>
+          </div>
+        </div>`;
+    } else {
+      stopAdminRTMCountdown();
+      block.innerHTML = '';
+    }
   }
 }
 

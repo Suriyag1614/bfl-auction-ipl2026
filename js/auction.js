@@ -53,7 +53,8 @@ const stateHash = s => !s ? '' :
    s.rtm_team_id, s.last_player_result, s.last_player_id,
    s.last_sold_price, s.current_set_name, s.rtm_deadline,
    s.last_set_name||'', s.last_action_at||'',
-   (s.unsold_player_ids||[]).length].join('|');
+   (s.unsold_player_ids||[]).length,
+   s.rtm_window_active||false].join('|');
 
 // ── Status-change notification state ─────────────────────────
 let _prevToastState = { status: '', playerId: '', rtm: false, setName: '', result: '', actionAt: '' };
@@ -495,17 +496,20 @@ function updateLiveBidStats(state) {
 let _lastPurseHash = '';
 async function applyState(state) {
   const statusEl = el('auction-status');
+  const isRTMWindow = !!state.rtm_window_active;
   if (statusEl) {
     const labels = { waiting:'Waiting', live:'LIVE', sold:'Sold', paused:'Paused', set_live:'SET LIVE' };
-    statusEl.textContent = state.rtm_pending ? 'RTM' : (labels[state.status] || state.status);
-    statusEl.className   = 'status-badge status-' + (state.rtm_pending ? 'rtm' : state.status);
+    statusEl.textContent = state.rtm_pending ? 'RTM' : isRTMWindow ? 'RTM WINDOW' : (labels[state.status] || state.status);
+    statusEl.className   = 'status-badge status-' + (state.rtm_pending ? 'rtm' : isRTMWindow ? 'rtm' : state.status);
   }
 
   fireStatusToasts(state);
   renderLastResult(state);
-  // Only refresh purse when it may have changed: team is leading, or just got outbid
   const purseHash = (state.current_highest_team_id||'')+(state.current_highest_bid||0)+(state.status||'');
   if (purseHash !== _lastPurseHash) { _lastPurseHash = purseHash; await refreshPurse(); }
+
+  // ── Day window ended banner (shown while waiting / between sets) ──
+  _renderDayWindowBanner(state);
 
   if (state.rtm_pending) {
     stopTimer(); stopSetTimer();
@@ -549,7 +553,9 @@ async function applyState(state) {
 
     const noMsg = el('no-auction-msg');
     if (noMsg) {
-      if (state.last_player_result === 'set_done')
+      if (state.rtm_window_active && !state.rtm_pending)
+        noMsg.innerHTML = '<strong style="color:#c4b5fd;">RTM Window Active</strong> — Your RTM opportunity will appear here if eligible';
+      else if (state.last_player_result === 'set_done')
         noMsg.innerHTML = '<strong>Set Auction Complete</strong>' + (state.last_set_name ? ' — ' + _esc(state.last_set_name) : '');
       else if (state.last_player_result === 'sold' && state.last_player?.name)
         noMsg.innerHTML = '<strong>' + _esc(state.last_player.name) + '</strong> sold to <strong>' + _esc(state.last_sold_to_team||'') + '</strong> for <strong>' + fmt(state.last_sold_price) + '</strong>';
@@ -978,6 +984,84 @@ async function renderLivePlayer(state, paused) {
   if (paused) { stopTimer(); const t = el('timer'); if (t) { t.textContent = 'Paused'; t.className = 'timer'; } }
   else startTimer(state.bid_timer_end);
 }
+
+// ── Day window ended / RTM window banner ──────────────────────
+function _renderDayWindowBanner(state) {
+  // Create or find banner element (injected above the main content area)
+  let banner = el('day-window-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'day-window-banner';
+    // Insert before the main content wrapper
+    const cont = el('main-content') || document.querySelector('.container');
+    if (cont) cont.insertBefore(banner, cont.firstChild);
+  }
+
+  const dayEndMs    = state.day_end    ? new Date(state.day_end).getTime()    : null;
+  const rtmEndMs    = state.rtm_window_end ? new Date(state.rtm_window_end).getTime() : null;
+  const now         = serverNow();
+  const windowEnded = dayEndMs && now >= dayEndMs;
+  const inRTMWindow = windowEnded && rtmEndMs && now < rtmEndMs;
+  const rtmActive   = !!state.rtm_window_active || !!state.rtm_pending;
+
+  if (!windowEnded) {
+    // Window is open — show live countdown bar if within session
+    const startMs = state.day_start ? new Date(state.day_start).getTime() : null;
+    const started = startMs ? now >= startMs : true;
+    if (dayEndMs && started) {
+      const rem = dayEndMs - now;
+      const dur = startMs ? (dayEndMs - startMs) : null;
+      const pct = dur ? Math.max(0, Math.min(100, (rem / dur) * 100)) : 100;
+      const h   = Math.floor(rem / 3600000);
+      const m   = Math.floor((rem % 3600000) / 60000);
+      const s   = Math.floor((rem % 60000) / 1000);
+      const remStr = (h > 0 ? h+'h ' : '') + String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s';
+      const barCls = pct > 33 ? 'dwb-bar-green' : pct > 12 ? 'dwb-bar-amber' : 'dwb-bar-red';
+      banner.innerHTML = `
+        <div class="day-window-bar">
+          <span class="dwb-label">Auction Window</span>
+          <span class="dwb-time" id="dwb-time">${remStr}</span>
+          <div class="dwb-track"><div class="dwb-fill ${barCls}" id="dwb-fill" style="width:${pct}%"></div></div>
+        </div>`;
+      // Start or refresh live tick
+      if (!_dwbInterval) {
+        _dwbInterval = setInterval(() => _renderDayWindowBanner(currentState || state), 1000);
+      }
+    } else {
+      banner.innerHTML = '';
+    }
+    return;
+  }
+
+  // Window ended
+  clearInterval(_dwbInterval); _dwbInterval = null;
+
+  if (inRTMWindow && rtmActive) {
+    const rem = rtmEndMs - now;
+    const dur = dayEndMs ? (rtmEndMs - dayEndMs) : null;
+    const pct = dur ? Math.max(0, Math.min(100, (rem / dur) * 100)) : 100;
+    const h = Math.floor(rem/3600000), m = Math.floor((rem%3600000)/60000), s = Math.floor((rem%60000)/1000);
+    const remStr = (h>0?h+'h ':'')+String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s';
+    banner.innerHTML = `
+      <div class="day-window-bar day-window-bar-rtm">
+        <span class="dwb-label" style="color:#c4b5fd;">RTM Window</span>
+        <span class="dwb-time" style="color:#c4b5fd;">${remStr}</span>
+        <div class="dwb-track"><div class="dwb-fill dwb-bar-purple" style="width:${pct}%"></div></div>
+      </div>`;
+    if (!_dwbInterval) {
+      _dwbInterval = setInterval(() => _renderDayWindowBanner(currentState || state), 1000);
+    }
+  } else if (windowEnded && !inRTMWindow) {
+    banner.innerHTML = `
+      <div class="day-window-bar day-window-bar-ended">
+        <span class="dwb-label">Auction Ended</span>
+        <span class="dwb-time">Bidding is closed for today</span>
+      </div>`;
+  } else {
+    banner.innerHTML = '';
+  }
+}
+let _dwbInterval = null;
 
 // ── RTM pending screen ────────────────────────────────────────
 function renderRTMPending(state) {
