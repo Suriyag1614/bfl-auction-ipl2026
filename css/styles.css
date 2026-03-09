@@ -259,7 +259,7 @@ select.form-input{cursor:pointer;}
 /* ═══════════════════════════════════════════════════════
    AUCTION — TEAM VIEW
 ═══════════════════════════════════════════════════════ */
-.auction-grid{display:grid;grid-template-columns:1fr 320px;gap:20px;padding:16px 0;min-width:0;}
+.auction-grid{display:grid;grid-template-columns:1fr 0.4px;gap:20px;padding:16px 0;min-width:0;}
 .auction-grid > *{min-width:0;}
 /* Sidebar: don't use overflow:hidden — it breaks sticky headers inside */
 .squad-sidebar{min-width:0;}
@@ -1758,6 +1758,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-size: 14px;
   padding: 9px 12px;
   transition: border-color 0.15s, background 0.15s;
+  appearance: none;
   -webkit-appearance: none;
 }
 .dm-input:focus {
