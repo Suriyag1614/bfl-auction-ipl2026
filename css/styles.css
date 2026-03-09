@@ -259,7 +259,7 @@ select.form-input{cursor:pointer;}
 /* ═══════════════════════════════════════════════════════
    AUCTION — TEAM VIEW
 ═══════════════════════════════════════════════════════ */
-.auction-grid{display:grid;grid-template-columns:1fr 320px;gap:20px;padding:16px 0;min-width:0;}
+.auction-grid{display:grid;grid-template-columns:1fr 0.4fr;gap:20px;padding:16px 0;min-width:0;}
 .auction-grid > *{min-width:0;}
 /* Sidebar: don't use overflow:hidden — it breaks sticky headers inside */
 .squad-sidebar{min-width:0;}
