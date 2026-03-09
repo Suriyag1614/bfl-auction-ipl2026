@@ -89,7 +89,7 @@
   <div class="card login-card">
 
     <!-- LOGO -->
-    <div class="bfl-logo">BFL</div>
+    <div class="bfl-logo">BISHOPIANS FANTASY LEAGUE</div>
     <div class="login-subtitle">IPL 2026 Fantasy Auction</div>
     <div class="bfl-divider"></div>
 
@@ -103,7 +103,7 @@
       <div class="form-group" id="team-group">
         <label class="form-label">Select Your Franchise</label>
         <div class="sel-wrap">
-          <span class="sel-icon" id="sel-icon">BFL</span>
+          <span class="sel-icon" id="sel-icon"><img src="images/bfl-logo.png" alt="BFL Logo"></span>
           <select id="team-select" class="form-input" style="padding-left:44px;" onchange="onTeamChange()">
             <option value="">— Loading teams… —</option>
           </select>
@@ -174,9 +174,9 @@ var _role  = 'team';
 var _teams = [];
 
 // ── Helpers ───────────────────────────────────────────────────
-var IPL_LOGO = function(c){ return 'https://documents.iplt20.com/ipl/'+c+'/logos/Logooutline/'+c+'outline.png'; };
-var EMOJIS = [['GUJARAT','⚡'],['MUMBAI',''],['PUNJAB','♦️'],['CHENNAI',''],['KOLKATA',''],['DELHI',''],['RAJASTHAN',''],['SUNRISERS',''],['ROYAL',''],['LUCKNOW','']];
-var ICODES = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],['ROYAL','RCB'],['LUCKNOW','LSG']];
+var IPL_LOGO = function(c){ return 'images/'+c+'outline.png'; };
+var EMOJIS = [['GUJARAT','⚡'],['MUMBAI','🧿'],['PUNJAB','♦️'],['CHENNAI','🦁'],['KOLKATA','⚜️'],['DELHI','🐯'],['RAJASTHAN',''],['SUNRISERS','☀️'],['ROYAL','👑'],['LUCKNOW','🐘'],['SUPREME','🤴🏻']];
+var ICODES = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],['ROYAL','RCB'],['LUCKNOW','LSG'],['SUPREME','SURA']];
 function teamEmoji(n){ var u=(n||'').toUpperCase(); var m=EMOJIS.find(function(x){return u.includes(x[0]);}); return m?m[1]:''; }
 function teamCode(n) { var u=(n||'').toUpperCase(); var m=ICODES.find(function(x){return u.includes(x[0]);}); return m?m[1]:null; }
 
@@ -375,7 +375,7 @@ function spawnConfetti() {
 var _ri = 0; // current rule index
 
 var RULES = [
-  { step:'Overview', title:'Welcome to BFL IPL 2026 Auction',
+  { step:'Overview', title:'Welcome to BFL Auction -  IPL 2026',
     body:'You are a <strong>franchise owner</strong> competing to build the best IPL squad within your budget.<ul>' +
          '<li>Each team starts with a <span class="rule-tag rtag-gold">₹120 Cr purse</span> (retentions already deducted)</li>' +
          '<li>Sign exactly <span class="rule-tag rtag-blue">12 players</span> to complete your squad</li>' +
