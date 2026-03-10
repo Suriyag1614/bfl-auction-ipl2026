@@ -559,6 +559,16 @@ async function loadPlayers() {
       };
     });
 
+    // Rebuild unsoldIds fresh from DB — single source of truth.
+    // Don't merge with stale module-level state; loadAuctionState will re-merge after.
+    const { data: ul } = await sb.from('unsold_log').select('player_id');
+    const { data: unsoldSlots } = await sb.from('auction_slots')
+      .select('player_id').eq('status', 'unsold');
+    unsoldIds = new Set([
+      ...(ul || []).map(r => r.player_id),
+      ...(unsoldSlots || []).map(r => r.player_id),
+    ]);
+
     const sets = [...new Set(allPlayers.map(p => p.set_name).filter(Boolean))].sort((a, b) => {
       const na = allPlayers.find(p => p.set_name === a)?.set_no ?? Infinity;
       const nb = allPlayers.find(p => p.set_name === b)?.set_no ?? Infinity;
@@ -1183,7 +1193,9 @@ async function loadAuctionState() {
       state.rtm_team = null;
     }
 
-    unsoldIds        = new Set(state.unsold_player_ids || []);
+    // Merge unsold_player_ids into unsoldIds — don't replace, because loadPlayers
+    // may have already fetched additional unsold entries from unsold_log / auction_slots.
+    (state.unsold_player_ids || []).forEach(id => unsoldIds.add(id));
     autopilotEnabled = !!state.autopilot_enabled;
     currentState     = state;
     setConn('connected'); clearError();
@@ -2578,6 +2590,7 @@ init();
 //  SET-WISE AUCTION
 // ═══════════════════════════════════════════════════════════════
 async function loadSetGroups() {
+  // Exclude: already sold, already unsold (from any source), currently in a live slot
   const avail = allPlayers.filter(p => !soldMap[p.id] && !unsoldIds.has(p.id));
   const groups = {};
   avail.forEach(p => {
@@ -2729,7 +2742,7 @@ async function launchSetAuction(setName) {
 }
 
 async function closeSetAuction() {
-  if (!await confirm2('Players with bids → **SOLD**. No bids → **UNSOLD**. RTM opportunities (if any) will be handled in the end-of-day RTM Window.', {title:'Close Set',icon:'',danger:true})) return;
+  if (!await confirm2('Players with bids → **SOLD** (RTM offered if eligible). No bids → **UNSOLD**.', {title:'Close Set',icon:'',danger:true})) return;
   clearError();
   const setName = currentState?.current_set_name;
   if (!setName) return showError('No active set auction');
@@ -2873,12 +2886,30 @@ function startSetAutopilotWatcher(endMs) {
         clearInterval(_setAutopilotPollId); _setAutopilotPollId = null; return;
       }
 
+      // RTM is pending mid-set — do NOT call tick_auction, it would re-trigger RTM.
+      // Just reload state and wait. Once admin/team resolves RTM, rtm_pending clears,
+      // exercise_rtm marks the slot 'sold', and autopilot can continue closing.
+      if (currentState?.rtm_pending) {
+        await loadAuctionState();
+        return; // keep polling via setInterval
+      }
+
       dbg('[SetAutopilot] Attempting auto-close…');
       const { data: td, error: te } = await sb.rpc('tick_auction');
       if (te) console.warn('[SetAutopilot] tick_auction error:', te.message);
       else dbg('[SetAutopilot] tick_auction result:', td);
 
       await loadAuctionState();
+
+      // RTM triggered mid-set close — keep polling; autopilot will call close_set_auction
+      // again once RTM resolves (rtm_pending will be cleared by exercise_rtm)
+      if (td?.action === 'set_rtm_pending') {
+        dbg('[SetAutopilot] RTM mid-set for', td.rtm_player, '— waiting for RTM resolve…');
+        await Promise.all([loadTeams(), loadHistory()]);
+        await updateStats(); await renderSetLauncher();
+        return; // keep polling
+      }
+
       const setName = currentState?.current_set_name;
       if (setName) await loadSetSlots(setName);
 
@@ -2917,6 +2948,13 @@ function startSetAutopilotWatcher(endMs) {
       if (sn) {
         const { data: cd, error: ce } = await sb.rpc('close_set_auction', { p_set_name: sn });
         if (!ce && cd?.success) {
+          if (cd.rtm_triggered) {
+            // RTM mid-set — reload state and keep polling; admin resolves RTM then set closes
+            dbg('[SetAutopilot] RTM triggered mid-set for', cd.rtm_player);
+            await Promise.all([loadAuctionState(), loadTeams()]);
+            await updateStats(); await renderSetLauncher();
+            return; // keep polling — will call close_set_auction again after RTM resolves
+          }
           clearInterval(adminSetTimerInterval); _setIsPaused = false;
           if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
           activeSetSlots = [];
