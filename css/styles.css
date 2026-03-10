@@ -248,9 +248,6 @@ select.form-input{cursor:pointer;}
 #tab-history .data-table{min-width:680px;}
 #tab-squads  .data-table{min-width:560px;}
 
-/* Toast */
-
-
 /* Skeleton */
 .skel{background:linear-gradient(90deg,var(--border) 25%,var(--border2) 50%,var(--border) 75%);background-size:600px 100%;animation:shimmer 1.4s infinite linear;border-radius:4px;display:block;}
 .skel-text{height:13px;width:100%;margin-bottom:8px;}

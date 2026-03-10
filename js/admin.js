@@ -2463,7 +2463,7 @@ function toast(titleOrMsg, subtitleOrType, typeArg) {
   } else {
     t = 'info'; title = TOAST_TITLES.info; sub = _stripEmoji(titleOrMsg);
   }
-  const dur = TOAST_DURATION[t] || 4000;
+  const dur = TOAST_DURATION[t] || 6000;
   const d = document.createElement('div');
   d.className = 'toast toast-' + t;
   d.style.setProperty('--toast-dur', dur + 'ms');
