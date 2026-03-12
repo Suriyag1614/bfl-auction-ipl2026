@@ -236,13 +236,66 @@ select.form-input{cursor:pointer;}
 .filter-tag.active{background:var(--gold);color:#000;border-color:var(--gold);box-shadow:0 2px 12px rgba(240,180,41,0.3);}
 
 /* Tabs */
-.tabs{display:flex;border-bottom:2px solid var(--border);margin-bottom:18px;flex-wrap:nowrap;gap:0;overflow-x:auto;}
+.tabs{
+  display:flex;
+  border-bottom:2px solid var(--border);
+  margin-bottom:18px;
+  flex-wrap:nowrap;
+  gap:0;
+  overflow-x:auto;
+}
+
 .tabs::-webkit-scrollbar{height:0;}
-.tab-btn{padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);cursor:pointer;white-space:nowrap;transition:color var(--t),border-color var(--t),background var(--t);}
-.tab-btn:hover{color:var(--text2);background:rgba(255,255,255,0.02);}
-.tab-btn.active{color:var(--gold);border-bottom-color:var(--gold);}
-.tab-panel{display:none;animation:fade-in-up 0.28s ease both;min-width:0;}
-.tab-panel.active{display:block;}
+
+.tab-btn{
+  padding:10px 20px;
+  background:transparent;
+  border:none;
+  font-family:'Barlow Condensed',sans-serif;
+  font-size:14px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+  color:var(--muted);
+  cursor:pointer;
+  white-space:nowrap;
+  transition:color var(--t),background var(--t);
+  position:relative;
+}
+
+.tab-btn:hover{
+  color:var(--text2);
+  background:rgba(255,255,255,0.02);
+}
+
+.tab-btn::after{
+  content:"";
+  position:absolute;
+  left:0;
+  bottom:-2px;
+  width:100%;
+  height:2px;
+  background:transparent;
+  transition:background var(--t);
+}
+
+.tab-btn.active{
+  color:var(--gold);
+}
+
+.tab-btn.active::after{
+  background:var(--gold);
+}
+
+.tab-panel{
+  display:none;
+  animation:fade-in-up 0.28s ease both;
+  min-width:0;
+}
+
+.tab-panel.active{
+  display:block;
+}
 /* Admin tables: scroll inside their wrap, sticky headers work */
 #tab-players .data-table{min-width:700px;}
 #tab-history .data-table{min-width:680px;}

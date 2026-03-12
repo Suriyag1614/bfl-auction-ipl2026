@@ -37,17 +37,17 @@ window._SIL_ADMIN = SILHOUETTE_ADMIN;
 
 function getIPLColors(code) {
   const map = {
-    CSK:{ primary:'#f7c948', secondary:'#00184e', glow:'rgba(247,201,72,0.3)' },
-    MI: { primary:'#005da0', secondary:'#d1ab3e', glow:'rgba(0,93,160,0.35)' },
-    RCB:{ primary:'#d41620', secondary:'#1a1a1a', glow:'rgba(212,22,32,0.35)' },
-    KKR:{ primary:'#6a1bac', secondary:'#b08c3c', glow:'rgba(106,27,172,0.35)' },
-    SRH:{ primary:'#f26522', secondary:'#1a1a1a', glow:'rgba(242,101,34,0.35)' },
-    DC: { primary:'#004c93', secondary:'#ef2826', glow:'rgba(0,76,147,0.35)' },
-    PBKS:{ primary:'#aa192f', secondary:'#dbbe6c', glow:'rgba(170,25,47,0.35)' },
-    RR: { primary:'#2d62a4', secondary:'#e83f5b', glow:'rgba(45,98,164,0.35)' },
-    GT: { primary:'#1c3e6e', secondary:'#c8a84b', glow:'rgba(28,62,110,0.35)' },
-    LSG: { primary:'#00b4d8', secondary:'#c6a200', glow:'rgba(0,180,216,0.35)' },
-    SURA:{ primary:'#1a3a8a', secondary:'#c8a850', glow:'rgba(26,58,138,0.35)' },
+  CSK:{ primary:'#fdb913', secondary:'#1b3a8a', glow:'rgba(253,185,19,0.35)' },
+  MI: { primary:'#004ba0', secondary:'#d4af37', glow:'rgba(0,75,160,0.35)' },
+  RCB:{ primary:'#da1818', secondary:'#000000', glow:'rgba(218,24,24,0.35)' },
+  KKR:{ primary:'#3a225d', secondary:'#d4af37', glow:'rgba(58,34,93,0.35)' },
+  SRH:{ primary:'#f26522', secondary:'#000000', glow:'rgba(242,101,34,0.35)' },
+  DC: { primary:'#004c93', secondary:'#c8102e', glow:'rgba(0,76,147,0.35)' },
+  PBKS:{ primary:'#ed1b24', secondary:'#c5a253', glow:'rgba(237,27,36,0.35)' },
+  RR: { primary:'#ea1a85', secondary:'#254aa5', glow:'rgba(234,26,133,0.35)' },
+  GT: { primary:'#1c2c5b', secondary:'#c5a253', glow:'rgba(28,44,91,0.35)' },
+  LSG:{ primary:'#ff002b', secondary:'#1c3e6e', glow:'rgba(255,0,43,0.35)'},
+  SURA:{ primary:'#1a3a8a', secondary:'#c8a850', glow:'rgba(26,58,138,0.35)' }
   };
   return map[(code||'').toUpperCase()] || null;
 }
