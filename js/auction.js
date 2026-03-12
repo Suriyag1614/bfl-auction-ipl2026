@@ -326,23 +326,27 @@ async function init() {
     }
   });
 }
+var ICODES = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],['ROYAL','RCB'],['LUCKNOW','LSG'],['SUPREME','SURA']];
+function teamCode(n) { var u=(n||'').toUpperCase(); var m=ICODES.find(function(x){return u.includes(x[0]);}); return m?m[1]:null; }
 
 function revealUI() {
   hide('auction-skeleton'); hide('stats-skeleton'); hide('squad-skeleton');
   show('stats-real'); show('squad-table-wrap'); show('role-pool-wrap');
-  // Set team name in navbar — clear skeleton span first, then set plain text
+
   const tn = el('team-name');
   if (tn) {
-    tn.innerHTML = ''; // remove skeleton child spans
+    tn.innerHTML = '';
     tn.textContent = myTeam?.team_name || '—';
   }
-  // Also set the BFL logo text (defensive — it's static HTML but ensure it's visible)
-  const logo = document.querySelector('.navbar-logo');
-  if (logo && !logo.textContent.trim()) logo.textContent = 'BFL';
+
+  // TEAM LOGO
+ const logo = document.querySelector('.navbar-logo');
+if (logo) logo.innerHTML = teamCode(myTeam?.team_name) ? `<img src="images/${teamCode(myTeam.team_name)}outline.png" style="height:40px;">` : 'BFL';
+
   updatePurseDisplay();
   if (myTeam.is_advantage_holder) show('advantage-badge');
   updateRTMBadge();
-  // Confirm UI is live — helps verify toast system works
+
   setTimeout(() => toast(myTeam.team_name + ' connected', 'Purse: ' + fmt(myTeam.purse_remaining), 'success'), 800);
 }
 
