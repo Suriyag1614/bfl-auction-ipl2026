@@ -285,6 +285,7 @@ select.form-input{cursor:pointer;}
 
 .tab-btn.active::after{
   background:var(--gold);
+  box-shadow:0 0 8px var(--gold)
 }
 
 .tab-panel{
