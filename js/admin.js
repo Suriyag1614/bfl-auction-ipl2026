@@ -40,7 +40,7 @@ function getIPLColors(code) {
   CSK:{ primary:'#fdb913', secondary:'#1b3a8a', glow:'rgba(253,185,19,0.35)' },
   MI: { primary:'#004ba0', secondary:'#d4af37', glow:'rgba(0,75,160,0.35)' },
   RCB:{ primary:'#da1818', secondary:'#000000', glow:'rgba(218,24,24,0.35)' },
-  KKR:{ primary:'#6a1bac', secondary:'#d4af37', glow:'rgba(106,27,172,0.35)' },
+  KKR:{ primary:'purple', secondary:'#d4af37', glow:'rgba(106,27,172,0.35)' },
   SRH:{ primary:'#f26522', secondary:'#000000', glow:'rgba(242,101,34,0.35)' },
   DC: { primary:'#004c93', secondary:'#c8102e', glow:'rgba(0,76,147,0.35)' },
   PBKS:{ primary:'#ed1b24', secondary:'#c5a253', glow:'rgba(237,27,36,0.35)' },
