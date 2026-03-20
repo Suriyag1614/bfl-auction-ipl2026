@@ -2844,12 +2844,34 @@ async function togglePauseSet() {
     const setName = currentState?.current_set_name;
     if (setName) {
       await loadSetSlots(setName);
+      // Always re-render the set launcher panel regardless of tab visibility
+      // so the admin timer element is updated with the real remaining time.
+      await renderSetLauncher();
       const tab = document.getElementById('tab-sets');
-      if (tab?.classList.contains('active')) await renderSetLauncher();
-      // Restart autopilot watcher with new end times from resumed slots
-      const _S = new Date('9000-01-01').getTime();
-      const realEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < _S);
-      if (realEnds.length) startSetAutopilotWatcher(Math.max(...realEnds));
+      if (tab && !tab.classList.contains('active')) {
+        // Tab not visible — but still update the timer DOM if the panel HTML was already rendered
+        // by directly restarting the interval on the existing admin-set-timer element.
+        const _S = new Date('9000-01-01').getTime();
+        const realEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < _S);
+        if (realEnds.length) {
+          const endMs = Math.max(...realEnds);
+          clearInterval(adminSetTimerInterval);
+          adminSetTimerInterval = setInterval(() => {
+            const t = document.getElementById('admin-set-timer');
+            if (!t) { clearInterval(adminSetTimerInterval); return; }
+            const rem = Math.max(0, Math.ceil((endMs - serverNow()) / 1000));
+            t.textContent = rem <= 0 ? 'Ended' : _fmtAdminTime(rem);
+            t.className = 'timer' + (rem <= 0 ? ' timer-ended' : rem <= 30 ? ' timer-critical' : rem <= 60 ? ' timer-warning' : '');
+            if (rem <= 0) clearInterval(adminSetTimerInterval);
+          }, 250);
+          startSetAutopilotWatcher(endMs);
+        }
+      } else {
+        // Tab is visible — renderSetLauncher already restarted the timer via renderLiveSetPanel
+        const _S = new Date('9000-01-01').getTime();
+        const realEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < _S);
+        if (realEnds.length) startSetAutopilotWatcher(Math.max(...realEnds));
+      }
     }
     toast('Set Resumed', 'Timers restored — bidding is live again', 'success');
   }

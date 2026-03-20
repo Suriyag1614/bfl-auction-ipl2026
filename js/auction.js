@@ -1009,7 +1009,7 @@ async function renderLivePlayer(state, paused) {
 
   if (!_samePlayer) renderUpcomingSets();  // refresh upcoming panel below live card
   if (paused) { stopTimer(); const t = el('timer'); if (t) { t.textContent = 'Paused'; t.className = 'timer'; } }
-  else startTimer(state.bid_timer_end);
+  else startTimer(state.bid_timer_end, state.bid_timer_default || state.bid_duration_seconds || 0);
 }
 
 // ── Day window ended / RTM window banner ──────────────────────
@@ -1423,7 +1423,17 @@ async function renderSetInPlayerCard(state) {
     slots.forEach(slot => patchSlotCard(slot));
   }
 
-  startSetTimer(latestEnd);
+  // Compute configuredSec from day_end if available — used so progress bar shows correct total
+  // On resume from pause, this makes the bar restart from the correct full-window duration.
+  let setConfiguredSec = 0;
+  if (state.day_end) {
+    const dayEndMs = new Date(state.day_end).getTime();
+    const nowMs = serverNow();
+    // Only use if day_end is in the future and reasonable (< 24h)
+    const remSec = Math.ceil((dayEndMs - nowMs) / 1000);
+    if (remSec > 0 && remSec < 86400) setConfiguredSec = remSec;
+  }
+  startSetTimer(latestEnd, setConfiguredSec);
   subscribeSetSlots(state.current_set_name);
 }
 
@@ -1587,23 +1597,45 @@ async function loadBidHistory(playerId) {
   const wrap = el('bid-history-wrap'); if (!wrap || !playerId) return;
 
   try {
+    const isLive = currentState?.status === 'live' && currentState?.current_player_id === playerId;
+
+    // Fetch bid_log for full history (all bids ever placed on this player this auction)
     const { data: bids, error } = await sb.from('bid_log')
       .select('bid_amount,bid_at,team:teams(team_name)')
-      .eq('player_id', playerId).order('bid_at', { ascending: false }).limit(20);
+      .eq('player_id', playerId).order('bid_at', { ascending: false }).limit(50);
     if (error) { console.warn('[BidHistory]', error.message); }
 
-    if (bids?.length) {
-      const isLive = currentState?.status === 'live' && currentState?.current_player_id === playerId;
+    // When live: also inject the current highest & second highest from auction_state
+    // so teams always see the live leading bids even if bid_log hasn't caught up yet.
+    let displayBids = bids ? [...bids] : [];
+
+    if (isLive && currentState) {
+      const st = currentState;
+      const injectBid = (amount, teamName) => {
+        if (!amount || amount <= 0 || !teamName) return;
+        // Only inject if this exact amount+team isn't already in bid_log
+        const already = displayBids.some(b =>
+          Number(b.bid_amount) === Number(amount) &&
+          b.team?.team_name === teamName
+        );
+        if (!already) {
+          displayBids.unshift({ bid_amount: amount, bid_at: new Date().toISOString(), team: { team_name: teamName }, _live: true });
+        }
+      };
+      injectBid(st.current_highest_bid, st.highest_team?.team_name);
+      injectBid(st.second_highest_bid, st.second_team?.team_name);
+    }
+
+    if (displayBids.length) {
       wrap.innerHTML = `<div class="bid-history">
-        <div class="bid-history-title">Bid History${isLive ? ' <span style="color:var(--green);font-size:10px;">● LIVE</span>' : ''} <span style="color:var(--muted);font-size:10px;">(${bids.length} bid${bids.length !== 1 ? 's' : ''})</span></div>
-        ${bids.map((b,i) => `<div class="bid-history-row${i===0?' bh-latest':''}">
-          <span class="bh-rank">#${bids.length - i}</span>
-          <span class="bh-team">${_esc(b.team?.team_name||'?')}</span>
+        <div class="bid-history-title">Bid History${isLive ? ' <span style="color:var(--green);font-size:10px;">● LIVE</span>' : ''} <span style="color:var(--muted);font-size:10px;">(${displayBids.length} bid${displayBids.length !== 1 ? 's' : ''})</span></div>
+        ${displayBids.map((b, i) => `<div class="bid-history-row${i === 0 ? ' bh-latest' : ''}">
+          <span class="bh-rank">#${displayBids.length - i}</span>
+          <span class="bh-team">${_esc(b.team?.team_name || '?')}${b._live ? ' <span style="font-size:9px;color:var(--green);font-weight:700;">NOW</span>' : ''}</span>
           <span class="bh-amount">${fmt(b.bid_amount)}</span>
         </div>`).join('')}
       </div>`;
     } else {
-      const isLive = currentState?.status === 'live' && currentState?.current_player_id === playerId;
       wrap.innerHTML = `<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">${isLive ? 'No bids placed yet' : 'No bid history recorded'}</div></div>`;
     }
   } catch(e) { console.warn('[BidHistory]', e.message); wrap.innerHTML = ''; }
@@ -1876,16 +1908,23 @@ function serverNow() { return Date.now() + _serverClockOffset; }
 
 let _timerEndMs = 0, _timerTotalSec = 60;
 let _timerExpiredAt = 0; // when single-player timer first hit 0 (for grace countdown)
-function startTimer(endTime) {
+// startTimer(endTime, configuredSec)
+// configuredSec = bid_timer_default from auction_state — used as the "full" duration so
+// the progress bar always resets to 100% after a bid, regardless of remaining time.
+function startTimer(endTime, configuredSec) {
   if (!endTime) return;
   const newEndMs = new Date(endTime).getTime();
   if (isNaN(newEndMs)) return;
-  // Only reset totalSec when this is a fresh timer (end time changed by >2s)
-  if (Math.abs(newEndMs - _timerEndMs) > 2000) {
-    _timerEndMs    = newEndMs;
-    const rawSec   = Math.ceil((newEndMs - serverNow()) / 1000);
-    // If server time ahead of us, rawSec could be negative — use absolute
-    _timerTotalSec = Math.max(1, Math.abs(rawSec) > 300 ? 60 : rawSec);
+  // Always recalculate totalSec when _timerEndMs was zeroed (after bid/undo) OR end changed
+  if (_timerEndMs === 0 || Math.abs(newEndMs - _timerEndMs) > 2000) {
+    _timerEndMs = newEndMs;
+    if (configuredSec && configuredSec > 0) {
+      // Use the server-configured duration — resets bar to 100% every bid
+      _timerTotalSec = configuredSec;
+    } else {
+      const rawSec = Math.ceil((newEndMs - serverNow()) / 1000);
+      _timerTotalSec = Math.max(1, Math.abs(rawSec) > 300 ? 60 : rawSec);
+    }
   }
   stopTimer();
   const endMs    = newEndMs;
@@ -1961,7 +2000,10 @@ function stopTimer()    { clearInterval(timerInterval);    timerInterval    = nu
 let _setTimerEndMs = 0, _setTimerTotalSec = 60;
 let _setExpired = false;  // true when set auction timer has expired
 const _SET_TIMER_SENTINEL = new Date('9000-01-01').getTime(); // paused sentinel
-function startSetTimer(endMs) {
+// startSetTimer(endMs, configuredSec)
+// configuredSec = day_end-based auction window in seconds, if available.
+// When provided, resets the progress bar to 100% on resume/new set.
+function startSetTimer(endMs, configuredSec) {
   stopSetTimer(); if (!endMs) return;
 
   // Detect pause sentinel (9999-12-31 = bid_timer_end when set is paused)
@@ -1978,11 +2020,15 @@ function startSetTimer(endMs) {
   _setExpired = false; // reset on new set
   // If transitioning from sentinel (paused state ~year 9000) to real time, force totalSec recalc
   const _wasSentinel = _setTimerEndMs >= _SET_TIMER_SENTINEL;
-  if (_wasSentinel || Math.abs(endMs - _setTimerEndMs) > 2000) {
-    _setTimerEndMs    = endMs;
-    const rawSec      = Math.ceil((endMs - serverNow()) / 1000);
-    // Use actual remaining time — no artificial cap (timers can be hours for day windows)
-    _setTimerTotalSec = Math.max(1, rawSec > 0 ? rawSec : 60);
+  if (_wasSentinel || _setTimerEndMs === 0 || Math.abs(endMs - _setTimerEndMs) > 2000) {
+    _setTimerEndMs = endMs;
+    if (configuredSec && configuredSec > 0) {
+      // Use caller-supplied duration (auction window) — gives accurate full-bar reset
+      _setTimerTotalSec = configuredSec;
+    } else {
+      const rawSec = Math.ceil((endMs - serverNow()) / 1000);
+      _setTimerTotalSec = Math.max(1, rawSec > 0 ? rawSec : 60);
+    }
   }
   const totalSetSec = _setTimerTotalSec;
   function tick() {
