@@ -2791,24 +2791,16 @@ async function cancelSetAuction() {
 
 // ── Pause / Resume Set ────────────────────────────────────────
 let _setIsPaused = false;
-let _pausedSetRemainMs = 0; // remaining ms at the moment pause was pressed
 
 async function togglePauseSet() {
   if (!_setIsPaused) {
     // ── PAUSE ────────────────────────────────────────────────
-    // Capture remaining time BEFORE calling the RPC so we can restore it on resume
-    const _SENTINEL = new Date('9000-01-01').getTime();
-    const realEnds = activeSetSlots
-      .map(s => new Date(s.bid_timer_end).getTime())
-      .filter(ms => ms < _SENTINEL);
-    _pausedSetRemainMs = realEnds.length
-      ? Math.max(0, Math.max(...realEnds) - serverNow())
-      : 0;
-
     const { data, error } = await sb.rpc('pause_set_auction');
     if (error || !data?.success) return showError(error?.message || data?.error || 'Pause failed');
     _setIsPaused = true;
+    // Stop the ticker immediately — no re-render needed (avoids HTML wipe + timer restart)
     clearInterval(adminSetTimerInterval);
+    // Update DOM directly so button/timer flip without full re-render
     const btn = document.getElementById('pause-set-btn');
     if (btn) { btn.textContent = '▶ Resume Set'; btn.className = 'btn btn-gold btn-sm'; }
     const timerEl = document.getElementById('admin-set-timer');
@@ -2819,24 +2811,14 @@ async function togglePauseSet() {
     const { data, error } = await sb.rpc('resume_set_auction');
     if (error || !data?.success) return showError(error?.message || data?.error || 'Resume failed');
     _setIsPaused = false;
-
-    // The resume RPC restores the original full duration (e.g. 60s) rather than
-    // the remaining time when paused. Fix: directly patch auction_slots.bid_timer_end
-    // to now + remaining so both admin and team pages show the correct countdown.
+    // Reload slots (now have real timer end), then re-render — renderLiveSetPanel
+    // will detect isPausedByDB=false and restart the interval with correct time.
     const setName = currentState?.current_set_name;
-    if (setName && _pausedSetRemainMs > 0) {
-      const newEnd = new Date(serverNow() + _pausedSetRemainMs).toISOString();
-      await sb.from('auction_slots')
-        .update({ bid_timer_end: newEnd })
-        .eq('set_name', setName)
-        .eq('status', 'live');
-      _pausedSetRemainMs = 0;
-    }
-
     if (setName) {
       await loadSetSlots(setName);
       const tab = document.getElementById('tab-sets');
       if (tab?.classList.contains('active')) await renderSetLauncher();
+      // Restart autopilot watcher with new end times from resumed slots
       const _S = new Date('9000-01-01').getTime();
       const realEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < _S);
       if (realEnds.length) startSetAutopilotWatcher(Math.max(...realEnds));

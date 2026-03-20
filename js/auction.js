@@ -547,19 +547,11 @@ async function applyState(state) {
   } else if ((state.status === 'live' || state.status === 'paused') && state.current_player) {
     stopSetTimer(); stopRTMTimer();
     _rtmAlerted = false;
-    // Only reset _timerEndMs when the player actually changes.
-    // Resetting it on every state update (as before) caused _timerTotalSec to be recalculated
-    // to "remaining seconds right now" on every 2s poll, so the bar never showed the full
-    // original duration — it always started from wherever the poll happened to catch it.
-    const prevPlayerId = currentState?._renderedPlayerId;
-    if (state.current_player_id !== prevPlayerId) {
-      _wasLeading    = false;
-      _timerEndMs    = 0;   // force totalSec recalc for the new player's fresh timer
-      _setTimerEndMs = 0;
+    if (state.current_player_id !== currentState?._prevPlayerId) {
+      _wasLeading   = false;
+      _timerEndMs   = 0;    // Force timer totalSec recalc on new player
+      _setTimerEndMs= 0;
     }
-    // Store which player we last rendered so the next poll can compare correctly.
-    // We write this onto currentState (which = state at this point) before rendering.
-    state._renderedPlayerId = state.current_player_id;
     hide('set-auction-view'); hide('no-auction'); hide('rtm-pending');
     await renderLivePlayer(state, state.status === 'paused');
     if (state.current_player_id) loadBidHistory(state.current_player_id);
@@ -992,22 +984,11 @@ async function renderLivePlayer(state, paused) {
 
   if (isMe) {
     if (bidBtn)  bidBtn.style.display  = 'none';
-    // Show undo whenever you are the current highest bidder and the timer is still running.
-    // Do NOT use prev_bid_team_purse — that field is not reliably set by place_bid,
-    // and renderLivePlayer is called after every poll, which would hide the button
-    // milliseconds after placeBid shows it.
-    const timerStillLive = !paused && state.bid_timer_end
-      ? (new Date(state.bid_timer_end).getTime() > serverNow())
-      : !paused;
-    if (undoBtn) {
-      undoBtn.style.display = timerStillLive ? 'inline-flex' : 'none';
-      undoBtn.disabled      = false;
-      undoBtn.title         = timerStillLive ? '' : 'Bidding closed — timer has ended';
-    }
+    if (undoBtn) undoBtn.style.display = (state.prev_bid_team_purse != null && !paused) ? 'inline-flex' : 'none';
     if (bidInput) bidInput.disabled = true;
   } else {
     if (bidBtn)  { bidBtn.style.display = ''; bidBtn.disabled = paused || bidBlocked; }
-    if (undoBtn) { undoBtn.style.display = 'none'; }
+    if (undoBtn) undoBtn.style.display = 'none';
     if (bidInput) bidInput.disabled = paused || bidBlocked;
   }
 
@@ -1892,16 +1873,12 @@ function startTimer(endTime) {
   if (!endTime) return;
   const newEndMs = new Date(endTime).getTime();
   if (isNaN(newEndMs)) return;
-  // Recalculate totalSec (progress bar denominator) only when bid_timer_end changes by
-  // more than 1 second. This fires on:
-  //   • New player  → _timerEndMs was reset to 0 by applyState  (always recalculates)
-  //   • Bid resets timer → server extends bid_timer_end by ~60s  (large delta → recalculates)
-  //   • Re-poll, same timer → delta < 1s                         (no recalc, bar stays smooth)
-  if (Math.abs(newEndMs - _timerEndMs) > 1000) {
+  // Only reset totalSec when this is a fresh timer (end time changed by >2s)
+  if (Math.abs(newEndMs - _timerEndMs) > 2000) {
     _timerEndMs    = newEndMs;
     const rawSec   = Math.ceil((newEndMs - serverNow()) / 1000);
-    _timerTotalSec = Math.max(1, rawSec > 0 ? rawSec : 60);
-    _timerExpiredAt = 0; // reset grace countdown for the new timer window
+    // If server time ahead of us, rawSec could be negative — use absolute
+    _timerTotalSec = Math.max(1, Math.abs(rawSec) > 300 ? 60 : rawSec);
   }
   stopTimer();
   const endMs    = newEndMs;
@@ -1988,8 +1965,6 @@ function startSetTimer(endMs) {
     if (bar) { bar.style.width = '100%'; bar.className = 'timer-progress-bar tp-green'; }
     document.querySelectorAll('.sc-bid-btn').forEach(b => { b.disabled = true; b.textContent = 'Paused'; });
     document.querySelectorAll('.sc-bid-input').forEach(i => { i.disabled = true; });
-    // Keep _setTimerEndMs unchanged so the remaining-time calculation in admin.js works.
-    // Do NOT reset _setTimerTotalSec here — it holds the paused total for the bar.
     return; // don't start ticker
   }
 
