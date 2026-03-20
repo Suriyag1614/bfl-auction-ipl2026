@@ -1193,14 +1193,27 @@ function renderAutopilotBtn() {
 async function loadAuctionState() {
   await safeLoad(async () => {
     // Two-step load: main state first, then join separately to avoid ambiguous FK
-    const { data: state, error } = await sb.from('auction_state')
+    let { data: state, error } = await sb.from('auction_state')
       .select(`*,
         current_player:players_master!auction_state_current_player_id_fkey(*),
         highest_team:teams!auction_state_current_highest_team_id_fkey(team_name),
         second_team:teams!auction_state_second_highest_team_id_fkey(team_name)`)
       .eq('id', 1).maybeSingle();
     if (error) throw new Error(error.message);
-    if (!state) { showError('Auction state row missing — run schema SQL'); return; }
+    if (!state) {
+      // Auto-initialize row
+      const { error: insErr } = await sb.from('auction_state').insert({ id: 1, status: 'waiting' });
+      if (insErr) {
+        showError('Auction state row missing and auto-insert failed: ' + insErr.message);
+        return;
+      }
+      const retry = await sb.from('auction_state').select(`*,
+        current_player:players_master!auction_state_current_player_id_fkey(*),
+        highest_team:teams!auction_state_current_highest_team_id_fkey(team_name),
+        second_team:teams!auction_state_second_highest_team_id_fkey(team_name)`).eq('id', 1).maybeSingle();
+      if (!retry.data) { showError('Auction state row missing — run schema SQL'); return; }
+      state = retry.data;
+    }
 
     // last_player: separate fetch to avoid ambiguous FK
     if (state.last_player_id) {
