@@ -554,7 +554,8 @@ async function applyState(state) {
     }
     hide('set-auction-view'); hide('no-auction'); hide('rtm-pending');
     await renderLivePlayer(state, state.status === 'paused');
-    if (state.current_player_id) loadBidHistory(state.current_player_id);
+    // Always refresh bid history during live — picks up new bids from all teams
+    loadBidHistory(state.current_player_id);
 
   } else {
     stopTimer(); stopSetTimer(); stopRTMTimer();
@@ -1423,16 +1424,12 @@ async function renderSetInPlayerCard(state) {
     slots.forEach(slot => patchSlotCard(slot));
   }
 
-  // Compute configuredSec from day_end if available — used so progress bar shows correct total
-  // On resume from pause, this makes the bar restart from the correct full-window duration.
-  let setConfiguredSec = 0;
-  if (state.day_end) {
-    const dayEndMs = new Date(state.day_end).getTime();
-    const nowMs = serverNow();
-    // Only use if day_end is in the future and reasonable (< 24h)
-    const remSec = Math.ceil((dayEndMs - nowMs) / 1000);
-    if (remSec > 0 && remSec < 86400) setConfiguredSec = remSec;
-  }
+  // Use actual remaining slot time as the progress bar total — not day_end.
+  // day_end is the overall session window; the set timer should show
+  // remaining time based on the slots' bid_timer_end (set by server on resume).
+  const nowMs = serverNow();
+  const remSec = Math.ceil((latestEnd - nowMs) / 1000);
+  let setConfiguredSec = (remSec > 0 && remSec < 86400) ? remSec : 0;
   startSetTimer(latestEnd, setConfiguredSec);
   subscribeSetSlots(state.current_set_name);
 }
@@ -1630,7 +1627,7 @@ async function loadBidHistory(playerId) {
       wrap.innerHTML = `<div class="bid-history">
         <div class="bid-history-title">Bid History${isLive ? ' <span style="color:var(--green);font-size:10px;">● LIVE</span>' : ''} <span style="color:var(--muted);font-size:10px;">(${displayBids.length} bid${displayBids.length !== 1 ? 's' : ''})</span></div>
         ${displayBids.map((b, i) => `<div class="bid-history-row${i === 0 ? ' bh-latest' : ''}">
-          <span class="bh-rank">#${displayBids.length - i}</span>
+          <span class="bh-rank">#${i + 1}</span>
           <span class="bh-team">${_esc(b.team?.team_name || '?')}${b._live ? ' <span style="font-size:9px;color:var(--green);font-weight:700;">NOW</span>' : ''}</span>
           <span class="bh-amount">${fmt(b.bid_amount)}</span>
         </div>`).join('')}
@@ -2146,6 +2143,11 @@ async function placeBid() {
   toast('Bid Placed', fmt(amount) + ' — you are leading', 'success');
   // Force timer to recalculate totalSec from fresh server end time after bid resets timer
   _timerEndMs = 0; _timerTotalSec = 60;
+  stopTimer(); // immediately stop old timer so UI doesn't show stale countdown
+  const tEl = el('timer');
+  if (tEl) { tEl.textContent = '—'; tEl.className = 'timer'; }
+  const tBar = el('timer-bar');
+  if (tBar) { tBar.style.width = '100%'; tBar.className = 'timer-progress-bar tp-green'; }
   _lastStateHash = ''; _lastAppliedStatus = ''; fetchState();
 }
 
@@ -2175,6 +2177,11 @@ async function undoBid() {
   if (btn) btn.style.display = 'none';
   toast('Bid Undone', 'Your bid has been reversed', 'info');
   _timerEndMs = 0; // force timer recalc after undo resets server timer
+  stopTimer();
+  const tElU = el('timer');
+  if (tElU) { tElU.textContent = '—'; tElU.className = 'timer'; }
+  const tBarU = el('timer-bar');
+  if (tBarU) { tBarU.style.width = '100%'; tBarU.className = 'timer-progress-bar tp-green'; }
   _lastStateHash = ''; _lastAppliedStatus = ''; await fetchState();
 }
 
