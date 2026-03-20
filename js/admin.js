@@ -744,7 +744,7 @@ async function pauseAuction() {
 async function cancelLiveAuction() {
   const playerName = currentState?.current_player?.name || 'current player';
   if (!await confirm2(
-    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared. Purse is refunded to leading bidder.`,
+    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared.`,
     { title:'Cancel Live Auction', icon:'', danger:true }
   )) return;
   clearError(); clearAutoSell(); stopTimer();
@@ -752,23 +752,9 @@ async function cancelLiveAuction() {
   const cs = currentState;
   const cancelledPlayerId = cs?.current_player_id || null;
 
-  // Fix #11: Atomic purse refund — UPDATE purse_remaining = purse_remaining + bid
-  // Avoids TOCTOU race from read-then-write. Uses SQL delta so concurrent bids can't corrupt purse.
-  if (cs?.current_highest_team_id && cs?.current_highest_bid > 0) {
-    const bid = Number(cs.current_highest_bid);
-    // Supabase doesn't support SQL expressions directly, use RPC pattern:
-    // read purse, add bid atomically via FOR UPDATE lock in a transaction.
-    // Since we're about to clear auction_state (which holds the bid), this is safe:
-    // no new bid can arrive once we've cleared bid_timer_end below.
-    const { data: tRow } = await sb.from('teams')
-      .select('id,purse_remaining').eq('id', cs.current_highest_team_id).maybeSingle();
-    if (tRow) {
-      await sb.from('teams')
-        .update({ purse_remaining: Number(tRow.purse_remaining) + bid })
-        .eq('id', cs.current_highest_team_id)
-        .eq('purse_remaining', tRow.purse_remaining); // optimistic lock — retry if row changed
-    }
-  }
+  // NOTE: Bids do NOT deduct purse during live bidding — purse is only deducted on
+  // final sale (force_sell / tick_auction). So NO refund is needed here.
+  // Performing a refund would inflate the team's purse incorrectly.
 
   // Fix #3: clear bid_log for this player (cancel = no history record needed)
   if (cancelledPlayerId) {
@@ -792,7 +778,7 @@ async function cancelLiveAuction() {
     last_action_at: new Date().toISOString(),
   }).eq('id', 1);
   if (error) { console.error('[Cancel] auction_state update failed:', error); return showError('Cancel failed: ' + error.message); }
-  toast('Auction Cancelled', playerName + ' returned to Available — purse refunded', 'warn');
+  toast('Auction Cancelled', playerName + ' returned to Available', 'warn');
   await Promise.all([loadAuctionState(), loadPlayers(), loadTeams()]);
   renderPlayerList();
 }
@@ -995,10 +981,19 @@ async function queueAllUnsold() {
     { title:'Re-queue All Unsold', icon:'↻' }
   )) return;
   clearError();
-  // Delete all unsold_log entries
   const ids = [...unsoldIds];
-  const { error } = await sb.from('unsold_log').delete().in('player_id', ids);
-  if (error) return showError('Re-queue failed: ' + error.message);
+
+  // Clear unsold_log
+  const { error: e1 } = await sb.from('unsold_log').delete().in('player_id', ids);
+  if (e1) return showError('Re-queue failed: ' + e1.message);
+
+  // Clear auction_slots that are marked unsold (set-auction unsolds)
+  await sb.from('auction_slots').delete().in('player_id', ids).eq('status', 'unsold');
+
+  // Clear unsold_player_ids on auction_state
+  await sb.from('auction_state').update({ unsold_player_ids: '{}' }).eq('id', 1);
+
+  unsoldIds.clear();
   toast('Re-queued', count + ' unsold player(s) returned to Available', 'success');
   await Promise.all([loadPlayers(), loadAuctionState()]);
   renderPlayerList();
@@ -1108,6 +1103,17 @@ async function undoUnsold(playerId) {
   const { data, error } = await sb.rpc('undo_mark_unsold', { p_player_id: playerId });
   if (error) return showError(error.message);
   if (!data.success) return showError(data.error);
+
+  // Also clear from auction_slots (set-auction unsold rows not handled by RPC)
+  await sb.from('auction_slots').delete().eq('player_id', playerId).eq('status', 'unsold');
+
+  // Remove from unsold_player_ids in auction_state
+  const { data: st } = await sb.from('auction_state').select('unsold_player_ids').eq('id',1).maybeSingle();
+  if (st?.unsold_player_ids?.includes(playerId)) {
+    const updated = (st.unsold_player_ids || []).filter(id => id !== playerId);
+    await sb.from('auction_state').update({ unsold_player_ids: updated }).eq('id', 1);
+  }
+
   // If the unsold banner is showing this player, clear it
   if (currentState?.last_player_id === playerId && currentState?.last_player_result === 'unsold') {
     await sb.from('auction_state').update({
@@ -1780,18 +1786,43 @@ async function loadHistory() {
 
     const { data: ul } = await sb.from('unsold_log')
       .select('player_id,logged_at,player:players_master(name,role,ipl_team,base_price,is_overseas,is_uncapped,set_no,set_name)');
-    const unsoldEntries = (ul||[]).map(r => ({
-      player_name: r.player?.name    || '?',
-      role:        r.player?.role    || '?',
-      ipl_team:    r.player?.ipl_team|| '—',
-      base_price:  Number(r.player?.base_price||0),
-      is_overseas: r.player?.is_overseas||false,
-      is_uncapped: r.player?.is_uncapped||false,
-      set_no:      r.player?.set_no  || '—',
-      set_name:    r.player?.set_name|| '—',
-      sold_to:'—', team_id:null, sold_price:null,
-      sold_at: r.logged_at, status:'unsold', player_id: r.player_id,
-    }));
+
+    // Also fetch set-auction unsolds from auction_slots (may not have unsold_log entries
+    // for older data or if a migration was skipped)
+    const { data: slotUnsold } = await sb.from('auction_slots')
+      .select('player_id,updated_at,player:players_master(name,role,ipl_team,base_price,is_overseas,is_uncapped,set_no,set_name)')
+      .eq('status', 'unsold');
+
+    // Merge: unsold_log takes precedence; slot rows fill in any gaps
+    const logIds = new Set((ul||[]).map(r => r.player_id));
+    const extraSlotUnsold = (slotUnsold||[]).filter(r => !logIds.has(r.player_id));
+
+    const unsoldEntries = [
+      ...(ul||[]).map(r => ({
+        player_name: r.player?.name    || '?',
+        role:        r.player?.role    || '?',
+        ipl_team:    r.player?.ipl_team|| '—',
+        base_price:  Number(r.player?.base_price||0),
+        is_overseas: r.player?.is_overseas||false,
+        is_uncapped: r.player?.is_uncapped||false,
+        set_no:      r.player?.set_no  || '—',
+        set_name:    r.player?.set_name|| '—',
+        sold_to:'—', team_id:null, sold_price:null,
+        sold_at: r.logged_at, status:'unsold', player_id: r.player_id,
+      })),
+      ...extraSlotUnsold.map(r => ({
+        player_name: r.player?.name    || '?',
+        role:        r.player?.role    || '?',
+        ipl_team:    r.player?.ipl_team|| '—',
+        base_price:  Number(r.player?.base_price||0),
+        is_overseas: r.player?.is_overseas||false,
+        is_uncapped: r.player?.is_uncapped||false,
+        set_no:      r.player?.set_no  || '—',
+        set_name:    r.player?.set_name|| '—',
+        sold_to:'—', team_id:null, sold_price:null,
+        sold_at: r.updated_at, status:'unsold', player_id: r.player_id,
+      })),
+    ];
 
     if (ul) {
       unsoldLogMap = {};
