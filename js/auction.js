@@ -1424,25 +1424,12 @@ async function renderSetInPlayerCard(state) {
     slots.forEach(slot => patchSlotCard(slot));
   }
 
-  // Use the auction window remaining time (day_end) as the set timer endpoint.
-  // The set timer should count down to when the auction window ends, not the slot timer.
-  let setTimerEndMs = latestEnd;
-  let setConfiguredSec = 0;
-  if (state.day_end) {
-    const dayEndMs = new Date(state.day_end).getTime();
-    const nowMs = serverNow();
-    const remSec = Math.ceil((dayEndMs - nowMs) / 1000);
-    if (remSec > 0 && remSec < 86400) {
-      setTimerEndMs = dayEndMs;  // countdown to auction window end
-      setConfiguredSec = remSec; // progress bar total = full remaining window
-    }
-  }
-  if (!setConfiguredSec) {
-    // Fallback: use slot remaining time if day_end is not available
-    const nowMs = serverNow();
-    const remSec = Math.ceil((latestEnd - nowMs) / 1000);
-    setConfiguredSec = (remSec > 0 && remSec < 86400) ? remSec : 0;
-  }
+  // Use actual remaining slot time as the progress bar total — not day_end.
+  // day_end is the overall session window; the set timer should show
+  // remaining time based on the slots' bid_timer_end (set by server on resume).
+  const nowMs = serverNow();
+  const remSec = Math.ceil((latestEnd - nowMs) / 1000);
+  let setConfiguredSec = (remSec > 0 && remSec < 86400) ? remSec : 0;
   startSetTimer(setTimerEndMs, setConfiguredSec);
   subscribeSetSlots(state.current_set_name);
 }
@@ -1643,7 +1630,7 @@ async function loadBidHistory(playerId) {
       wrap.innerHTML = `<div class="bid-history">
         <div class="bid-history-title">Bid History${isLive ? ' <span style="color:var(--green);font-size:10px;">● LIVE</span>' : ''} <span style="color:var(--muted);font-size:10px;">(${displayBids.length} bid${displayBids.length !== 1 ? 's' : ''})</span></div>
         ${displayBids.map((b, i) => `<div class="bid-history-row${i === 0 ? ' bh-latest' : ''}">
-          <span class="bh-rank">#${i + 1}</span>
+          <span class="bh-rank">#${displayBids.length - i}</span>
           <span class="bh-team">${_esc(b.team?.team_name || '?')}${b._live ? ' <span style="font-size:9px;color:var(--green);font-weight:700;">NOW</span>' : ''}</span>
           <span class="bh-amount">${fmt(b.bid_amount)}</span>
         </div>`).join('')}
@@ -2160,6 +2147,10 @@ async function placeBid() {
   // Force timer to recalculate totalSec from fresh server end time after bid resets timer
   _timerEndMs = 0; _timerTotalSec = 60;
   stopTimer(); // immediately stop old timer so UI doesn't show stale countdown
+  const tEl = document.getElementById('timer');
+  if (tEl) { tEl.textContent = '—'; tEl.className = 'timer'; }
+  const tBar = document.getElementById('timer-bar');
+  if (tBar) { tBar.style.width = '100%'; tBar.className = 'timer-progress-bar tp-green'; }
   // Immediately restart timer with estimated end time (server already reset it)
   const cfgSec = currentState?.bid_timer_default || currentState?.bid_duration_seconds || 60;
   const estimatedEnd = new Date(serverNow() + cfgSec * 1000).toISOString();
@@ -2194,6 +2185,10 @@ async function undoBid() {
   toast('Bid Undone', 'Your bid has been reversed', 'info');
   _timerEndMs = 0; // force timer recalc after undo resets server timer
   stopTimer();
+  const tEl = document.getElementById('timer');
+  if (tEl) { tEl.textContent = '—'; tEl.className = 'timer'; }
+  const tBar = document.getElementById('timer-bar');
+  if (tBar) { tBar.style.width = '100%'; tBar.className = 'timer-progress-bar tp-green'; }
   // Immediately restart timer with estimated end time
   const cfgSecU = currentState?.bid_timer_default || currentState?.bid_duration_seconds || 60;
   const estimatedEndU = new Date(serverNow() + cfgSecU * 1000).toISOString();
