@@ -199,7 +199,9 @@ function showScreen(name) {
 async function loadTeams() {
   try {
     var res = await sb.from('teams_public').select('id,team_name').order('team_name');
-    if (res.error) res = await sb.from('teams').select('id,team_name').order('team_name');
+    if (res.error || !res.data || res.data.length === 0) {
+      res = await sb.from('teams').select('id,team_name').order('team_name');
+    }
     _teams = res.data || [];
   } catch(e) { _teams = []; }
   var sel = el('team-select');
@@ -283,6 +285,7 @@ async function autoRedirect(user) {
     if (res.data) { await loadTeams(); await showWelcome('team', res.data); return; }
   } catch(e) {}
   await sb.auth.signOut();
+  await loadTeams();
   showScreen('login');
 }
 // ── Welcome splash ────────────────────────────────────────────
