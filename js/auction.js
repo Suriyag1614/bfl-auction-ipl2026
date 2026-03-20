@@ -547,11 +547,19 @@ async function applyState(state) {
   } else if ((state.status === 'live' || state.status === 'paused') && state.current_player) {
     stopSetTimer(); stopRTMTimer();
     _rtmAlerted = false;
-    if (state.current_player_id !== currentState?._prevPlayerId) {
-      _wasLeading   = false;
-      _timerEndMs   = 0;    // Force timer totalSec recalc on new player
-      _setTimerEndMs= 0;
+    // Only reset _timerEndMs when the player actually changes.
+    // Resetting it on every state update (as before) caused _timerTotalSec to be recalculated
+    // to "remaining seconds right now" on every 2s poll, so the bar never showed the full
+    // original duration — it always started from wherever the poll happened to catch it.
+    const prevPlayerId = currentState?._renderedPlayerId;
+    if (state.current_player_id !== prevPlayerId) {
+      _wasLeading    = false;
+      _timerEndMs    = 0;   // force totalSec recalc for the new player's fresh timer
+      _setTimerEndMs = 0;
     }
+    // Store which player we last rendered so the next poll can compare correctly.
+    // We write this onto currentState (which = state at this point) before rendering.
+    state._renderedPlayerId = state.current_player_id;
     hide('set-auction-view'); hide('no-auction'); hide('rtm-pending');
     await renderLivePlayer(state, state.status === 'paused');
     if (state.current_player_id) loadBidHistory(state.current_player_id);
@@ -633,29 +641,21 @@ async function renderSetHighlights(state, cont) {
     const soldSlots   = (slots||[]).filter(s => s.status === 'sold' && s.current_highest_bid > 0);
     const unsoldCount = (slots||[]).filter(s => s.status === 'unsold').length;
 
-    // Enrich with player + ACTUAL winning team (from team_players, not auction_slots)
-    // auction_slots.current_highest_team_id is the last bidder, but RTM may have
-    // transferred the player to a different team. team_players is the ground truth.
+    // Enrich with player + team names
     const playerIds = soldSlots.map(s => s.player_id);
-    const [{ data: players }, { data: actualSales }] = await Promise.all([
+    const teamIds   = soldSlots.map(s => s.current_highest_team_id).filter(Boolean);
+    const [{ data: players }, { data: teamsData }] = await Promise.all([
       playerIds.length ? sb.from('players_master').select('id,name,role,ipl_team,image_url,is_overseas').in('id', playerIds) : Promise.resolve({data:[]}),
-      playerIds.length ? sb.from('team_players').select('player_id,sold_price,is_rtm,team:teams(id,team_name)').in('player_id', playerIds) : Promise.resolve({data:[]}),
+      teamIds.length   ? sb.from('teams').select('id,team_name').in('id', teamIds) : Promise.resolve({data:[]}),
     ]);
     const pMap = {}; (players||[]).forEach(p => { pMap[p.id] = p; });
-    // Build sales map: player_id → {sold_price, team_name, is_rtm}
-    const sMap = {}; (actualSales||[]).forEach(r => {
-      sMap[r.player_id] = { sold_price: Number(r.sold_price||0), team_name: r.team?.team_name||'?', is_rtm: r.is_rtm||false };
-    });
+    const tMap = {}; (teamsData||[]).forEach(t => { tMap[t.id] = t; });
 
-    const setResults = soldSlots.map(s => {
-      const actual = sMap[s.player_id];
-      return {
-        sold_price: actual ? actual.sold_price : s.current_highest_bid,
-        player:     pMap[s.player_id] || {},
-        team:       { team_name: actual ? actual.team_name : '?' },
-        is_rtm:     actual ? actual.is_rtm : false,
-      };
-    }).sort((a,b) => b.sold_price - a.sold_price);
+    const setResults = soldSlots.map(s => ({
+      sold_price: s.current_highest_bid,
+      player: pMap[s.player_id] || {},
+      team:   tMap[s.current_highest_team_id] || {},
+    })).sort((a,b) => b.sold_price - a.sold_price);
 
     if (!setResults.length) {
       const cardsEl = document.getElementById('set-hl-cards');
@@ -705,7 +705,7 @@ async function renderSetHighlights(state, cont) {
           </div>
         </div>
         <div class="set-hl-amount">${fmt(topBid.sold_price)}</div>
-        <div class="set-hl-by">${topBid.is_rtm ? '<span class="tag tag-rtm" style="font-size:9px;padding:1px 5px;">RTM</span> ' : ''}by ${topBid.team?.team_name||'?'}</div>
+        <div class="set-hl-by">by ${topBid.team?.team_name||'?'}</div>
       </div>
 
       <!-- Dominant team card -->
@@ -957,9 +957,7 @@ async function renderLivePlayer(state, paused) {
   }
   _wasLeading = isMe;
   el('second-bid').textContent  = state.second_highest_bid > 0 ? fmt(state.second_highest_bid) : '—';
-  el('second-team').textContent = (state.second_highest_bid > 0 && (state.second_team?.team_name || state.second_highest_team_id))
-    ? (state.second_team?.team_name || '…')
-    : '—';
+  el('second-team').textContent = state.second_team?.team_name || '—';
 
   const next = hasBid ? Number(state.current_highest_bid)+0.25 : Number(p.base_price);
   const bidInput = el('bid-input');
@@ -994,15 +992,17 @@ async function renderLivePlayer(state, paused) {
 
   if (isMe) {
     if (bidBtn)  bidBtn.style.display  = 'none';
-    // Show undo when you are leading and timer is still live (prev_bid_team_purse is
-    // unreliable — use isMe as the source of truth for whether undo makes sense)
+    // Show undo whenever you are the current highest bidder and the timer is still running.
+    // Do NOT use prev_bid_team_purse — that field is not reliably set by place_bid,
+    // and renderLivePlayer is called after every poll, which would hide the button
+    // milliseconds after placeBid shows it.
+    const timerStillLive = !paused && state.bid_timer_end
+      ? (new Date(state.bid_timer_end).getTime() > serverNow())
+      : !paused;
     if (undoBtn) {
-      const timerLive = !paused && (state.bid_timer_end
-        ? new Date(state.bid_timer_end).getTime() > serverNow()
-        : true);
-      undoBtn.style.display  = timerLive ? 'inline-flex' : 'none';
-      undoBtn.disabled       = false;
-      undoBtn.title          = '';
+      undoBtn.style.display = timerStillLive ? 'inline-flex' : 'none';
+      undoBtn.disabled      = false;
+      undoBtn.title         = timerStillLive ? '' : 'Bidding closed — timer has ended';
     }
     if (bidInput) bidInput.disabled = true;
   } else {
@@ -1892,8 +1892,11 @@ function startTimer(endTime) {
   if (!endTime) return;
   const newEndMs = new Date(endTime).getTime();
   if (isNaN(newEndMs)) return;
-  // Recalculate totalSec whenever the end time changes by more than 1 second.
-  // A bid resets bid_timer_end on the server, so we must always pick up the new total.
+  // Recalculate totalSec (progress bar denominator) only when bid_timer_end changes by
+  // more than 1 second. This fires on:
+  //   • New player  → _timerEndMs was reset to 0 by applyState  (always recalculates)
+  //   • Bid resets timer → server extends bid_timer_end by ~60s  (large delta → recalculates)
+  //   • Re-poll, same timer → delta < 1s                         (no recalc, bar stays smooth)
   if (Math.abs(newEndMs - _timerEndMs) > 1000) {
     _timerEndMs    = newEndMs;
     const rawSec   = Math.ceil((newEndMs - serverNow()) / 1000);
@@ -1985,7 +1988,8 @@ function startSetTimer(endMs) {
     if (bar) { bar.style.width = '100%'; bar.className = 'timer-progress-bar tp-green'; }
     document.querySelectorAll('.sc-bid-btn').forEach(b => { b.disabled = true; b.textContent = 'Paused'; });
     document.querySelectorAll('.sc-bid-input').forEach(i => { i.disabled = true; });
-    _setTimerEndMs = 0; // reset so resume picks up the correct remaining time from DB
+    // Keep _setTimerEndMs unchanged so the remaining-time calculation in admin.js works.
+    // Do NOT reset _setTimerTotalSec here — it holds the paused total for the bar.
     return; // don't start ticker
   }
 
