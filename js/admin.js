@@ -37,17 +37,17 @@ window._SIL_ADMIN = SILHOUETTE_ADMIN;
 
 function getIPLColors(code) {
   const map = {
-  CSK:{ primary:'#fdb913', secondary:'#1b3a8a', glow:'rgba(253,185,19,0.35)' },
-  MI: { primary:'#004ba0', secondary:'#d4af37', glow:'rgba(0,75,160,0.35)' },
-  RCB:{ primary:'#da1818', secondary:'#000000', glow:'rgba(218,24,24,0.35)' },
-  KKR:{ primary:'#6a1bac', secondary:'#d4af37', glow:'rgba(106,27,172,0.35)' },
-  SRH:{ primary:'#f26522', secondary:'#000000', glow:'rgba(242,101,34,0.35)' },
-  DC: { primary:'#004c93', secondary:'#c8102e', glow:'rgba(0,76,147,0.35)' },
-  PBKS:{ primary:'#ed1b24', secondary:'#c5a253', glow:'rgba(237,27,36,0.35)' },
-  RR: { primary:'#ea1a85', secondary:'#254aa5', glow:'rgba(234,26,133,0.35)' },
-  GT: { primary:'#1c2c5b', secondary:'#c5a253', glow:'rgba(28,44,91,0.35)' },
-  LSG:{ primary:'#ff002b', secondary:'#1c3e6e', glow:'rgba(255,0,43,0.35)'},
-  SURA:{ primary:'#1a3a8a', secondary:'#c8a850', glow:'rgba(26,58,138,0.35)' }
+    CSK:{ primary:'#f7c948', secondary:'#00184e', glow:'rgba(247,201,72,0.3)' },
+    MI: { primary:'#005da0', secondary:'#d1ab3e', glow:'rgba(0,93,160,0.35)' },
+    RCB:{ primary:'#d41620', secondary:'#1a1a1a', glow:'rgba(212,22,32,0.35)' },
+    KKR:{ primary:'#6a1bac', secondary:'#b08c3c', glow:'rgba(106,27,172,0.35)' },
+    SRH:{ primary:'#f26522', secondary:'#1a1a1a', glow:'rgba(242,101,34,0.35)' },
+    DC: { primary:'#004c93', secondary:'#ef2826', glow:'rgba(0,76,147,0.35)' },
+    PBKS:{ primary:'#aa192f', secondary:'#dbbe6c', glow:'rgba(170,25,47,0.35)' },
+    RR: { primary:'#2d62a4', secondary:'#e83f5b', glow:'rgba(45,98,164,0.35)' },
+    GT: { primary:'#1c3e6e', secondary:'#c8a84b', glow:'rgba(28,62,110,0.35)' },
+    LSG: { primary:'#00b4d8', secondary:'#c6a200', glow:'rgba(0,180,216,0.35)' },
+    SURA:{ primary:'#1a3a8a', secondary:'#c8a850', glow:'rgba(26,58,138,0.35)' },
   };
   return map[(code||'').toUpperCase()] || null;
 }
@@ -744,7 +744,7 @@ async function pauseAuction() {
 async function cancelLiveAuction() {
   const playerName = currentState?.current_player?.name || 'current player';
   if (!await confirm2(
-    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared. Purse is refunded to leading bidder.`,
+    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared.`,
     { title:'Cancel Live Auction', icon:'', danger:true }
   )) return;
   clearError(); clearAutoSell(); stopTimer();
@@ -752,23 +752,8 @@ async function cancelLiveAuction() {
   const cs = currentState;
   const cancelledPlayerId = cs?.current_player_id || null;
 
-  // Fix #11: Atomic purse refund — UPDATE purse_remaining = purse_remaining + bid
-  // Avoids TOCTOU race from read-then-write. Uses SQL delta so concurrent bids can't corrupt purse.
-  if (cs?.current_highest_team_id && cs?.current_highest_bid > 0) {
-    const bid = Number(cs.current_highest_bid);
-    // Supabase doesn't support SQL expressions directly, use RPC pattern:
-    // read purse, add bid atomically via FOR UPDATE lock in a transaction.
-    // Since we're about to clear auction_state (which holds the bid), this is safe:
-    // no new bid can arrive once we've cleared bid_timer_end below.
-    const { data: tRow } = await sb.from('teams')
-      .select('id,purse_remaining').eq('id', cs.current_highest_team_id).maybeSingle();
-    if (tRow) {
-      await sb.from('teams')
-        .update({ purse_remaining: Number(tRow.purse_remaining) + bid })
-        .eq('id', cs.current_highest_team_id)
-        .eq('purse_remaining', tRow.purse_remaining); // optimistic lock — retry if row changed
-    }
-  }
+  // NOTE: place_bid does NOT deduct purse from teams — deduction only happens at force_sell.
+  // So on cancel we do NOT add anything back to purse; there is nothing to refund.
 
   // Fix #3: clear bid_log for this player (cancel = no history record needed)
   if (cancelledPlayerId) {
@@ -792,7 +777,7 @@ async function cancelLiveAuction() {
     last_action_at: new Date().toISOString(),
   }).eq('id', 1);
   if (error) { console.error('[Cancel] auction_state update failed:', error); return showError('Cancel failed: ' + error.message); }
-  toast('Auction Cancelled', playerName + ' returned to Available — purse refunded', 'warn');
+  toast('Auction Cancelled', playerName + ' returned to Available', 'warn');
   await Promise.all([loadAuctionState(), loadPlayers(), loadTeams()]);
   renderPlayerList();
 }
@@ -2463,7 +2448,7 @@ function toast(titleOrMsg, subtitleOrType, typeArg) {
   } else {
     t = 'info'; title = TOAST_TITLES.info; sub = _stripEmoji(titleOrMsg);
   }
-  const dur = TOAST_DURATION[t] || 6000;
+  const dur = TOAST_DURATION[t] || 4000;
   const d = document.createElement('div');
   d.className = 'toast toast-' + t;
   d.style.setProperty('--toast-dur', dur + 'ms');
@@ -2791,24 +2776,16 @@ async function cancelSetAuction() {
 
 // ── Pause / Resume Set ────────────────────────────────────────
 let _setIsPaused = false;
-let _pausedSetRemainMs = 0; // remaining ms at the moment pause was pressed
 
 async function togglePauseSet() {
   if (!_setIsPaused) {
     // ── PAUSE ────────────────────────────────────────────────
-    // Capture remaining time BEFORE calling the RPC so we can restore it on resume
-    const _SENTINEL = new Date('9000-01-01').getTime();
-    const realEnds = activeSetSlots
-      .map(s => new Date(s.bid_timer_end).getTime())
-      .filter(ms => ms < _SENTINEL);
-    _pausedSetRemainMs = realEnds.length
-      ? Math.max(0, Math.max(...realEnds) - serverNow())
-      : 0;
-
     const { data, error } = await sb.rpc('pause_set_auction');
     if (error || !data?.success) return showError(error?.message || data?.error || 'Pause failed');
     _setIsPaused = true;
+    // Stop the ticker immediately — no re-render needed (avoids HTML wipe + timer restart)
     clearInterval(adminSetTimerInterval);
+    // Update DOM directly so button/timer flip without full re-render
     const btn = document.getElementById('pause-set-btn');
     if (btn) { btn.textContent = '▶ Resume Set'; btn.className = 'btn btn-gold btn-sm'; }
     const timerEl = document.getElementById('admin-set-timer');
@@ -2819,24 +2796,14 @@ async function togglePauseSet() {
     const { data, error } = await sb.rpc('resume_set_auction');
     if (error || !data?.success) return showError(error?.message || data?.error || 'Resume failed');
     _setIsPaused = false;
-
-    // The resume RPC restores the original full duration (e.g. 60s) rather than
-    // the remaining time when paused. Fix: directly patch auction_slots.bid_timer_end
-    // to now + remaining so both admin and team pages show the correct countdown.
+    // Reload slots (now have real timer end), then re-render — renderLiveSetPanel
+    // will detect isPausedByDB=false and restart the interval with correct time.
     const setName = currentState?.current_set_name;
-    if (setName && _pausedSetRemainMs > 0) {
-      const newEnd = new Date(serverNow() + _pausedSetRemainMs).toISOString();
-      await sb.from('auction_slots')
-        .update({ bid_timer_end: newEnd })
-        .eq('set_name', setName)
-        .eq('status', 'live');
-      _pausedSetRemainMs = 0;
-    }
-
     if (setName) {
       await loadSetSlots(setName);
       const tab = document.getElementById('tab-sets');
       if (tab?.classList.contains('active')) await renderSetLauncher();
+      // Restart autopilot watcher with new end times from resumed slots
       const _S = new Date('9000-01-01').getTime();
       const realEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < _S);
       if (realEnds.length) startSetAutopilotWatcher(Math.max(...realEnds));
