@@ -25,8 +25,6 @@ let _teamsCache      = [];
 let _rtmAlerted      = false;
 let _lastSquadData   = [];
 let _wasLeading      = false;  // track lead state for outbid alert
-let _lastRenderedPlayerId = null; // track which player is currently displayed (for timer reset)
-let _lastTimerEnd = '';           // track bid_timer_end to detect re-launch of same player
 let _connState       = 'connected';
 let _prevPurse       = null;  // for purse delta display
 let _reconnectTimer  = null;
@@ -135,17 +133,17 @@ function fireStatusToasts(state) {
 // ── IPL team helpers ──────────────────────────────────────────
 function getIPLColors(code) {
   const map = {
-    CSK:  { primary:'#f7c948', secondary:'#00184e', glow:'rgba(247,201,72,0.3)' },
-    MI:   { primary:'#005da0', secondary:'#d1ab3e', glow:'rgba(0,93,160,0.35)' },
-    RCB:  { primary:'#d41620', secondary:'#1a1a1a', glow:'rgba(212,22,32,0.35)' },
-    KKR:  { primary:'#6a1bac', secondary:'#b08c3c', glow:'rgba(106,27,172,0.35)' },
-    SRH:  { primary:'#f26522', secondary:'#1a1a1a', glow:'rgba(242,101,34,0.35)' },
-    DC:   { primary:'#004c93', secondary:'#ef2826', glow:'rgba(0,76,147,0.35)' },
-    PBKS: { primary:'#aa192f', secondary:'#dbbe6c', glow:'rgba(170,25,47,0.35)' },
-    RR:   { primary:'#2d62a4', secondary:'#e83f5b', glow:'rgba(45,98,164,0.35)' },
-    GT:   { primary:'#1c3e6e', secondary:'#c8a84b', glow:'rgba(28,62,110,0.35)' },
-    LSG:  { primary:'#00b4d8', secondary:'#c6a200', glow:'rgba(0,180,216,0.35)' },
-    SURA: { primary:'#1a3a8a', secondary:'#c8a850', glow:'rgba(26,58,138,0.35)' },
+  CSK:{ primary:'#fdb913', secondary:'#1b3a8a', glow:'rgba(253,185,19,0.35)' },
+  MI: { primary:'#004ba0', secondary:'#d4af37', glow:'rgba(0,75,160,0.35)' },
+  RCB:{ primary:'#da1818', secondary:'#000000', glow:'rgba(218,24,24,0.35)' },
+  KKR:{ primary:'#6a1bac', secondary:'#d4af37', glow:'rgba(106,27,172,0.35)' },
+  SRH:{ primary:'#f26522', secondary:'#000000', glow:'rgba(242,101,34,0.35)' },
+  DC: { primary:'#004c93', secondary:'#c8102e', glow:'rgba(0,76,147,0.35)' },
+  PBKS:{ primary:'#ed1b24', secondary:'#c5a253', glow:'rgba(237,27,36,0.35)' },
+  RR: { primary:'#ea1a85', secondary:'#254aa5', glow:'rgba(234,26,133,0.35)' },
+  GT: { primary:'#1c2c5b', secondary:'#c5a253', glow:'rgba(28,44,91,0.35)' },
+  LSG:{ primary:'#ff002b', secondary:'#1c3e6e', glow:'rgba(255,0,43,0.35)'},
+  SURA:{ primary:'#1a3a8a', secondary:'#c8a850', glow:'rgba(26,58,138,0.35)' }
   };
   return map[(code||'').toUpperCase()] || null;
 }
@@ -256,7 +254,7 @@ function toast(titleOrMsg, subtitleOrType, typeArg) {
   } else {
     t = 'info'; title = TOAST_TITLES.info; sub = _stripEmoji(titleOrMsg);
   }
-  const dur = TOAST_DURATION[t] || 4000;
+  const dur = TOAST_DURATION[t] || 6000;
   const d = document.createElement('div');
   d.className = 'toast toast-' + t;
   d.style.setProperty('--toast-dur', dur + 'ms');
@@ -328,23 +326,27 @@ async function init() {
     }
   });
 }
+var ICODES = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],['ROYAL','RCB'],['LUCKNOW','LSG'],['SUPREME','SURA']];
+function teamCode(n) { var u=(n||'').toUpperCase(); var m=ICODES.find(function(x){return u.includes(x[0]);}); return m?m[1]:null; }
 
 function revealUI() {
   hide('auction-skeleton'); hide('stats-skeleton'); hide('squad-skeleton');
   show('stats-real'); show('squad-table-wrap'); show('role-pool-wrap');
-  // Set team name in navbar — clear skeleton span first, then set plain text
+
   const tn = el('team-name');
   if (tn) {
-    tn.innerHTML = ''; // remove skeleton child spans
+    tn.innerHTML = '';
     tn.textContent = myTeam?.team_name || '—';
   }
-  // Also set the BFL logo text (defensive — it's static HTML but ensure it's visible)
-  const logo = document.querySelector('.navbar-logo');
-  if (logo && !logo.textContent.trim()) logo.textContent = 'BFL';
+
+  // TEAM LOGO
+ const logo = document.querySelector('.navbar-logo');
+if (logo) logo.innerHTML = teamCode(myTeam?.team_name) ? `<img src="images/${teamCode(myTeam.team_name)}outline.png" style="height:40px;">` : 'BFL';
+
   updatePurseDisplay();
   if (myTeam.is_advantage_holder) show('advantage-badge');
   updateRTMBadge();
-  // Confirm UI is live — helps verify toast system works
+
   setTimeout(() => toast(myTeam.team_name + ' connected', 'Purse: ' + fmt(myTeam.purse_remaining), 'success'), 800);
 }
 
@@ -545,14 +547,19 @@ async function applyState(state) {
   } else if ((state.status === 'live' || state.status === 'paused') && state.current_player) {
     stopSetTimer(); stopRTMTimer();
     _rtmAlerted = false;
-    const timerEnd = state.bid_timer_end || '';
-    if (state.current_player_id !== _lastRenderedPlayerId || timerEnd !== _lastTimerEnd) {
-      _wasLeading           = false;
-      _timerEndMs           = 0;   // force totalSec recalc for the new/relaunched timer
-      _setTimerEndMs        = 0;
-      _lastRenderedPlayerId = state.current_player_id;
-      _lastTimerEnd         = timerEnd;
+    // Only reset _timerEndMs when the player actually changes.
+    // Resetting it on every state update (as before) caused _timerTotalSec to be recalculated
+    // to "remaining seconds right now" on every 2s poll, so the bar never showed the full
+    // original duration — it always started from wherever the poll happened to catch it.
+    const prevPlayerId = currentState?._renderedPlayerId;
+    if (state.current_player_id !== prevPlayerId) {
+      _wasLeading    = false;
+      _timerEndMs    = 0;   // force totalSec recalc for the new player's fresh timer
+      _setTimerEndMs = 0;
     }
+    // Store which player we last rendered so the next poll can compare correctly.
+    // We write this onto currentState (which = state at this point) before rendering.
+    state._renderedPlayerId = state.current_player_id;
     hide('set-auction-view'); hide('no-auction'); hide('rtm-pending');
     await renderLivePlayer(state, state.status === 'paused');
     if (state.current_player_id) loadBidHistory(state.current_player_id);
@@ -560,8 +567,6 @@ async function applyState(state) {
   } else {
     stopTimer(); stopSetTimer(); stopRTMTimer();
     _rtmAlerted = false;
-    _lastRenderedPlayerId = null; // reset so next player triggers fresh timer
-    _lastTimerEnd = '';
     if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
     hide('player-card'); hide('set-auction-view'); hide('rtm-pending');
     show('no-auction');
@@ -960,13 +965,11 @@ async function renderLivePlayer(state, paused) {
     const newMin = next.toFixed(2);
     bidInput.min  = newMin;
     bidInput.step = '0.25';
-    // When no bids exist (fresh start or re-launch), always reset — even if focused.
-    // A stale value from a cancelled first auction must never carry over.
-    if (!hasBid) {
-      bidInput.value = newMin;
-    } else if (!bidInput.matches(':focus')) {
+    if (!bidInput.matches(':focus')) {
+      // Always set to base_price when there are no bids (covers new player + after undo)
+      // Always set on new player (first render) — parseFloat('') = NaN which breaks < check
       const curVal = parseFloat(bidInput.value);
-      if (isNaN(curVal) || curVal < next) {
+      if (!hasBid || _samePlayer === false || isNaN(curVal) || curVal < next) {
         bidInput.value = newMin;
       }
     }
@@ -989,11 +992,22 @@ async function renderLivePlayer(state, paused) {
 
   if (isMe) {
     if (bidBtn)  bidBtn.style.display  = 'none';
-    if (undoBtn) undoBtn.style.display = (state.prev_bid_team_purse != null && !paused) ? 'inline-flex' : 'none';
+    // Show undo whenever you are the current highest bidder and the timer is still running.
+    // Do NOT use prev_bid_team_purse — that field is not reliably set by place_bid,
+    // and renderLivePlayer is called after every poll, which would hide the button
+    // milliseconds after placeBid shows it.
+    const timerStillLive = !paused && state.bid_timer_end
+      ? (new Date(state.bid_timer_end).getTime() > serverNow())
+      : !paused;
+    if (undoBtn) {
+      undoBtn.style.display = timerStillLive ? 'inline-flex' : 'none';
+      undoBtn.disabled      = false;
+      undoBtn.title         = timerStillLive ? '' : 'Bidding closed — timer has ended';
+    }
     if (bidInput) bidInput.disabled = true;
   } else {
     if (bidBtn)  { bidBtn.style.display = ''; bidBtn.disabled = paused || bidBlocked; }
-    if (undoBtn) undoBtn.style.display = 'none';
+    if (undoBtn) { undoBtn.style.display = 'none'; }
     if (bidInput) bidInput.disabled = paused || bidBlocked;
   }
 
@@ -1555,12 +1569,10 @@ function patchSlotCard(slot) {
       // Team is leading this slot — always show Leading state + undo button
       sa.innerHTML = `<div class="sc-bid-action sc-bid-action--leading"><div class="sc-winning"><span class="sc-winning-icon">✓</span><span class="sc-winning-label">Leading</span><span class="sc-winning-amt">${fmt(slot.current_highest_bid)}</span></div><button class="btn btn-ghost btn-sm sc-undo-btn" onclick="undoSetBid('${slot.id}')">↩ Undo</button></div>`;
     } else {
-      // Not leading — show bid input
-      // When no bids exist, always reset value even if user has field focused —
-      // a stale amount from a cancelled first auction must never carry over.
+      // Not leading — show bid input, preserve typed value if user is actively typing
       const existing = document.getElementById('sbid-'+slot.id);
-      if (existing && existing.matches(':focus') && hasBid) {
-        // User is actively typing AND there's an existing bid — preserve their draft
+      if (existing && existing.matches(':focus')) {
+        // User is typing — just update the minimum, don't rebuild
         existing.min = next.toFixed(2);
         if (parseFloat(existing.value) < next) existing.value = next.toFixed(2);
         if (_setExpired) { existing.disabled = true; }
@@ -1578,24 +1590,33 @@ function patchSlotCard(slot) {
 async function loadBidHistory(playerId) {
   const wrap = el('bid-history-wrap'); if (!wrap || !playerId) return;
 
+  // Block during live bidding for this exact player
+  const liveNow = currentState?.status === 'live' && currentState?.current_player_id === playerId;
+  if (liveNow) {
+    wrap.innerHTML = `<div class="bid-history bid-history-locked">
+      <span class="bh-lock-icon">🔒</span>
+      <span class="bh-lock-msg">Bid details revealed once this player is sold or unsold</span>
+    </div>`;
+    return;
+  }
+
   try {
     const { data: bids, error } = await sb.from('bid_log')
       .select('bid_amount,bid_at,team:teams(team_name)')
       .eq('player_id', playerId).order('bid_at', { ascending: false }).limit(20);
     if (error) { console.warn('[BidHistory]', error.message); }
 
-    const isLive = currentState?.status === 'live' && currentState?.current_player_id === playerId;
     if (bids?.length) {
       wrap.innerHTML = `<div class="bid-history">
-        <div class="bid-history-title">Bid History <span style="color:var(--muted);font-size:10px;">(${bids.length} bid${bids.length !== 1 ? 's' : ''}${isLive ? ' · live' : ''})</span></div>
-        ${bids.map((b, i) => `<div class="bid-history-row${i === 0 ? ' bh-latest' : ''}">
+        <div class="bid-history-title">Bid History <span style="color:var(--muted);font-size:10px;">(${bids.length} bids)</span></div>
+        ${bids.map((b,i) => `<div class="bid-history-row${i===0?' bh-latest':''}">
           <span class="bh-rank">#${bids.length - i}</span>
-          <span class="bh-team">${_esc(b.team?.team_name || '?')}</span>
+          <span class="bh-team">${_esc(b.team?.team_name||'?')}</span>
           <span class="bh-amount">${fmt(b.bid_amount)}</span>
         </div>`).join('')}
       </div>`;
     } else {
-      wrap.innerHTML = `<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">No bids yet</div></div>`;
+      wrap.innerHTML = `<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">No bid history recorded</div></div>`;
     }
   } catch(e) { console.warn('[BidHistory]', e.message); wrap.innerHTML = ''; }
 }
@@ -1684,7 +1705,7 @@ function renderAllTeams() {
           <span style="font-family:'Barlow Condensed',sans-serif;font-weight:${isMe?'800':'700'};font-size:14px;">${t.team_name}</span>
           ${t.is_advantage_holder?'<span class="tag tag-advantage" style="font-size:9px;padding:1px 4px;">⭐</span>':''}
           ${rtmRem>0?`<span class="tag tag-rtm" style="font-size:9px;padding:1px 4px;">RTM×${rtmRem}</span>`:''}
-          ${isMe?'<span style="font-size:10px;color:var(--gold);font-style:italic;">(you)</span>':''}
+          ${isMe?'<span style="font-size:10px;color:var(--gold);font-style:italic;">(You)</span>':''}
         </div>
         <div class="presence-lbl ${pres.cls}">${pres.text}</div>
       </td>
@@ -1871,12 +1892,16 @@ function startTimer(endTime) {
   if (!endTime) return;
   const newEndMs = new Date(endTime).getTime();
   if (isNaN(newEndMs)) return;
-  // Only reset totalSec when this is a fresh timer (end time changed by >2s)
-  if (Math.abs(newEndMs - _timerEndMs) > 2000) {
+  // Recalculate totalSec (progress bar denominator) only when bid_timer_end changes by
+  // more than 1 second. This fires on:
+  //   • New player  → _timerEndMs was reset to 0 by applyState  (always recalculates)
+  //   • Bid resets timer → server extends bid_timer_end by ~60s  (large delta → recalculates)
+  //   • Re-poll, same timer → delta < 1s                         (no recalc, bar stays smooth)
+  if (Math.abs(newEndMs - _timerEndMs) > 1000) {
     _timerEndMs    = newEndMs;
     const rawSec   = Math.ceil((newEndMs - serverNow()) / 1000);
-    // If server time ahead of us, rawSec could be negative — use absolute
-    _timerTotalSec = Math.max(1, Math.abs(rawSec) > 300 ? 60 : rawSec);
+    _timerTotalSec = Math.max(1, rawSec > 0 ? rawSec : 60);
+    _timerExpiredAt = 0; // reset grace countdown for the new timer window
   }
   stopTimer();
   const endMs    = newEndMs;
@@ -1963,6 +1988,8 @@ function startSetTimer(endMs) {
     if (bar) { bar.style.width = '100%'; bar.className = 'timer-progress-bar tp-green'; }
     document.querySelectorAll('.sc-bid-btn').forEach(b => { b.disabled = true; b.textContent = 'Paused'; });
     document.querySelectorAll('.sc-bid-input').forEach(i => { i.disabled = true; });
+    // Keep _setTimerEndMs unchanged so the remaining-time calculation in admin.js works.
+    // Do NOT reset _setTimerTotalSec here — it holds the paused total for the bar.
     return; // don't start ticker
   }
 
@@ -2092,42 +2119,13 @@ async function placeBid() {
 
 async function undoBid() {
   const btn = el('undo-bid-btn');
-  if (!btn) return;
-
-  // Two-tap confirm (same pattern as undoSetBid): first tap arms, second fires
-  if (!btn._armed) {
-    btn._armed = true;
-    const prev = btn.textContent;
-    btn.textContent = '↩ Confirm?';
-    btn.style.color = 'var(--gold)';
-    setTimeout(() => {
-      if (btn._armed) {
-        btn._armed = false;
-        btn.textContent = '↩ Undo';
-        btn.style.color = '';
-      }
-    }, 2000);
-    return;
-  }
-  btn._armed = false; btn.style.color = '';
-
-  if (btn._inFlight) return;
-  btn._inFlight = true; btn.disabled = true; btn.textContent = '…';
-
+  if (btn && btn._inFlight) return; if (btn) { btn._inFlight = true; btn.disabled = true; btn.textContent = 'Placing…'; }
   const { data, error } = await sb.rpc('undo_bid');
-
-  // Always reset — never leave button stuck
-  btn._inFlight = false; btn.disabled = false; btn.textContent = '↩ Undo';
-
-  if (error || !data?.success) {
-    toast('Cannot Undo', error?.message || data?.error || 'Undo not available', 'warn');
-    return;
-  }
-  const bidBtn = el('bid-btn');
-  if (bidBtn) { bidBtn.style.display = ''; bidBtn.disabled = false; }
-  const input = el('bid-input');
-  if (input) input.disabled = false;
-  btn.style.display = 'none';
+  if (btn) { btn.disabled = false; btn.textContent = '↩ Undo'; }
+  if (error || !data?.success) { toast('Cannot Undo', error?.message||data?.error||'Undo not available', 'warn'); return; }
+  const bidBtn = el('bid-btn'); if (bidBtn) { bidBtn.style.display = ''; bidBtn.disabled = false; }
+  const input  = el('bid-input'); if (input) input.disabled = false;
+  if (btn) btn.style.display = 'none';
   toast('Bid Undone', 'Your bid has been reversed', 'info');
   _lastStateHash = ''; _lastAppliedStatus = ''; await fetchState();
 }
