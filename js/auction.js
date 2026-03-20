@@ -26,6 +26,7 @@ let _rtmAlerted      = false;
 let _lastSquadData   = [];
 let _wasLeading      = false;  // track lead state for outbid alert
 let _lastRenderedPlayerId = null; // track which player is currently displayed (for timer reset)
+let _lastTimerEnd = '';           // track bid_timer_end to detect re-launch of same player
 let _connState       = 'connected';
 let _prevPurse       = null;  // for purse delta display
 let _reconnectTimer  = null;
@@ -544,11 +545,13 @@ async function applyState(state) {
   } else if ((state.status === 'live' || state.status === 'paused') && state.current_player) {
     stopSetTimer(); stopRTMTimer();
     _rtmAlerted = false;
-    if (state.current_player_id !== _lastRenderedPlayerId) {
-      _wasLeading      = false;
-      _timerEndMs      = 0;   // force totalSec recalc for the new player's fresh timer
-      _setTimerEndMs   = 0;
+    const timerEnd = state.bid_timer_end || '';
+    if (state.current_player_id !== _lastRenderedPlayerId || timerEnd !== _lastTimerEnd) {
+      _wasLeading           = false;
+      _timerEndMs           = 0;   // force totalSec recalc for the new/relaunched timer
+      _setTimerEndMs        = 0;
       _lastRenderedPlayerId = state.current_player_id;
+      _lastTimerEnd         = timerEnd;
     }
     hide('set-auction-view'); hide('no-auction'); hide('rtm-pending');
     await renderLivePlayer(state, state.status === 'paused');
@@ -558,6 +561,7 @@ async function applyState(state) {
     stopTimer(); stopSetTimer(); stopRTMTimer();
     _rtmAlerted = false;
     _lastRenderedPlayerId = null; // reset so next player triggers fresh timer
+    _lastTimerEnd = '';
     if (setSlotChannel) { sb.removeChannel(setSlotChannel); setSlotChannel = null; }
     hide('player-card'); hide('set-auction-view'); hide('rtm-pending');
     show('no-auction');
@@ -956,11 +960,13 @@ async function renderLivePlayer(state, paused) {
     const newMin = next.toFixed(2);
     bidInput.min  = newMin;
     bidInput.step = '0.25';
-    if (!bidInput.matches(':focus')) {
-      // Always set to base_price when there are no bids (covers new player + after undo)
-      // Always set on new player (first render) — parseFloat('') = NaN which breaks < check
+    // When no bids exist (fresh start or re-launch), always reset — even if focused.
+    // A stale value from a cancelled first auction must never carry over.
+    if (!hasBid) {
+      bidInput.value = newMin;
+    } else if (!bidInput.matches(':focus')) {
       const curVal = parseFloat(bidInput.value);
-      if (!hasBid || _samePlayer === false || isNaN(curVal) || curVal < next) {
+      if (isNaN(curVal) || curVal < next) {
         bidInput.value = newMin;
       }
     }
@@ -1549,10 +1555,12 @@ function patchSlotCard(slot) {
       // Team is leading this slot — always show Leading state + undo button
       sa.innerHTML = `<div class="sc-bid-action sc-bid-action--leading"><div class="sc-winning"><span class="sc-winning-icon">✓</span><span class="sc-winning-label">Leading</span><span class="sc-winning-amt">${fmt(slot.current_highest_bid)}</span></div><button class="btn btn-ghost btn-sm sc-undo-btn" onclick="undoSetBid('${slot.id}')">↩ Undo</button></div>`;
     } else {
-      // Not leading — show bid input, preserve typed value if user is actively typing
+      // Not leading — show bid input
+      // When no bids exist, always reset value even if user has field focused —
+      // a stale amount from a cancelled first auction must never carry over.
       const existing = document.getElementById('sbid-'+slot.id);
-      if (existing && existing.matches(':focus')) {
-        // User is typing — just update the minimum, don't rebuild
+      if (existing && existing.matches(':focus') && hasBid) {
+        // User is actively typing AND there's an existing bid — preserve their draft
         existing.min = next.toFixed(2);
         if (parseFloat(existing.value) < next) existing.value = next.toFixed(2);
         if (_setExpired) { existing.disabled = true; }
