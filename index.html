@@ -204,6 +204,24 @@ async function loadTeams() {
     }
     _teams = res.data || [];
   } catch(e) { _teams = []; }
+  
+  if (!_teams || _teams.length === 0) {
+    // FALLBACK IF BOTH QUERIES FAIL (e.g. DUE TO RLS)
+    _teams = [
+      { id: 'Chennai Super Kings', team_name: 'Chennai Super Kings' },
+      { id: 'Delhi Capitals', team_name: 'Delhi Capitals' },
+      { id: 'Gujarat Titans', team_name: 'Gujarat Titans' },
+      { id: 'Kolkata Knight Riders', team_name: 'Kolkata Knight Riders' },
+      { id: 'Lucknow Super Giants', team_name: 'Lucknow Super Giants' },
+      { id: 'Mumbai Indians', team_name: 'Mumbai Indians' },
+      { id: 'Punjab Kings', team_name: 'Punjab Kings' },
+      { id: 'Rajasthan Royals', team_name: 'Rajasthan Royals' },
+      { id: 'Royal Challengers Bengaluru', team_name: 'Royal Challengers Bengaluru' },
+      { id: 'Sunrisers Hyderabad', team_name: 'Sunrisers Hyderabad' },
+      { id: 'Supreme Rajas', team_name: 'Supreme Rajas' }
+    ];
+  }
+  
   var sel = el('team-select');
   sel.innerHTML = '<option value="">— Pick your team —</option>' +
     _teams.map(function(t){ return '<option value="'+t.id+'">'+t.team_name+'</option>'; }).join('');
