@@ -744,7 +744,7 @@ async function pauseAuction() {
 async function cancelLiveAuction() {
   const playerName = currentState?.current_player?.name || 'current player';
   if (!await confirm2(
-    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared. Purse is refunded to leading bidder.`,
+    `Cancel the live auction for **${playerName}**?\nPlayer returns to Available. All bids are cleared. No purse is affected (purse is only deducted at sale time).`,
     { title:'Cancel Live Auction', icon:'', danger:true }
   )) return;
   clearError(); clearAutoSell(); stopTimer();
@@ -752,25 +752,11 @@ async function cancelLiveAuction() {
   const cs = currentState;
   const cancelledPlayerId = cs?.current_player_id || null;
 
-  // Fix #11: Atomic purse refund — UPDATE purse_remaining = purse_remaining + bid
-  // Avoids TOCTOU race from read-then-write. Uses SQL delta so concurrent bids can't corrupt purse.
-  if (cs?.current_highest_team_id && cs?.current_highest_bid > 0) {
-    const bid = Number(cs.current_highest_bid);
-    // Supabase doesn't support SQL expressions directly, use RPC pattern:
-    // read purse, add bid atomically via FOR UPDATE lock in a transaction.
-    // Since we're about to clear auction_state (which holds the bid), this is safe:
-    // no new bid can arrive once we've cleared bid_timer_end below.
-    const { data: tRow } = await sb.from('teams')
-      .select('id,purse_remaining').eq('id', cs.current_highest_team_id).maybeSingle();
-    if (tRow) {
-      await sb.from('teams')
-        .update({ purse_remaining: Number(tRow.purse_remaining) + bid })
-        .eq('id', cs.current_highest_team_id)
-        .eq('purse_remaining', tRow.purse_remaining); // optimistic lock — retry if row changed
-    }
-  }
+  // NOTE: purse is NOT deducted during live bidding — it is only deducted when
+  // force_sell / close_set_auction completes the sale. So we must NOT refund here.
+  // Simply clearing auction_state is sufficient to cancel cleanly.
 
-  // Fix #3: clear bid_log for this player (cancel = no history record needed)
+  // Clear bid_log for this player so history is clean for next auction of same player
   if (cancelledPlayerId) {
     try { await sb.from('bid_log').delete().eq('player_id', cancelledPlayerId); } catch(_) {}
   }
@@ -792,7 +778,7 @@ async function cancelLiveAuction() {
     last_action_at: new Date().toISOString(),
   }).eq('id', 1);
   if (error) { console.error('[Cancel] auction_state update failed:', error); return showError('Cancel failed: ' + error.message); }
-  toast('Auction Cancelled', playerName + ' returned to Available — purse refunded', 'warn');
+  toast('Auction Cancelled', playerName + ' returned to Available', 'warn');
   await Promise.all([loadAuctionState(), loadPlayers(), loadTeams()]);
   renderPlayerList();
 }
@@ -801,11 +787,35 @@ async function resumeAuction() {
   clearError();
   const btn = el('resume-btn') || el('resume-auction-btn');
   if (btn) { if (btn._inFlight) return; btn._inFlight = true; btn.disabled = true; }
-  const { data, error } = await sb.rpc('resume_auction');
+
+  // Detect whether we are resuming a set auction or a single-player auction.
+  // A set is paused when status='set_live' and all slot bid_timer_ends are the sentinel value.
+  // In that case, resume_set_auction restores the remaining set window time correctly.
+  const isSetPaused = currentState?.status === 'set_live' && currentState?.current_set_name;
+  const rpcName = isSetPaused ? 'resume_set_auction' : 'resume_auction';
+
+  const { data, error } = await sb.rpc(rpcName);
   if (btn) { btn._inFlight = false; btn.disabled = false; }
   if (error) return showError(error.message);
-  if (!data.success) return showError(data.error);
-  toast('Auction Resumed', 'Bidding is now live again', 'success'); await loadAuctionState();
+  if (!data?.success) return showError(data?.error || data?.error || 'Resume failed');
+
+  if (isSetPaused) {
+    _setIsPaused = false;
+    toast('Set Resumed', 'Set timer restored — bidding is live again', 'success');
+    const setName = currentState?.current_set_name;
+    if (setName) {
+      await loadSetSlots(setName);
+      const tab = el('tab-sets');
+      if (tab?.classList.contains('active')) await renderSetLauncher();
+      // Restart autopilot watcher with the restored end times
+      const _S = new Date('9000-01-01').getTime();
+      const realEnds = activeSetSlots.map(s => new Date(s.bid_timer_end).getTime()).filter(ms => ms < _S);
+      if (realEnds.length) startSetAutopilotWatcher(Math.max(...realEnds));
+    }
+  } else {
+    toast('Auction Resumed', 'Bidding is now live again', 'success');
+  }
+  await loadAuctionState();
 }
 
 async function forceSell() {
@@ -995,13 +1005,30 @@ async function queueAllUnsold() {
     { title:'Re-queue All Unsold', icon:'↻' }
   )) return;
   clearError();
-  // Delete all unsold_log entries
   const ids = [...unsoldIds];
-  const { error } = await sb.from('unsold_log').delete().in('player_id', ids);
-  if (error) return showError('Re-queue failed: ' + error.message);
+
+  // Delete all unsold_log entries
+  const { error: e1 } = await sb.from('unsold_log').delete().in('player_id', ids);
+  if (e1) return showError('Re-queue failed: ' + e1.message);
+
+  // Also clear unsold_player_ids array in auction_state
+  const { error: e2 } = await sb.from('auction_state')
+    .update({ unsold_player_ids: '{}' }).eq('id', 1);
+  if (e2) console.warn('[queueAllUnsold] Could not clear unsold_player_ids:', e2.message);
+
+  // Also clear any auction_slots rows marked unsold for these players
+  try {
+    await sb.from('auction_slots').delete().in('player_id', ids).eq('status', 'unsold');
+  } catch(_) {}
+
+  // Reset local state immediately so UI reflects change
+  unsoldIds = new Set();
+  unsoldLogMap = {};
+
   toast('Re-queued', count + ' unsold player(s) returned to Available', 'success');
   await Promise.all([loadPlayers(), loadAuctionState()]);
   renderPlayerList();
+  await updateStats();
 }
 
 async function resetSet() {
@@ -2590,8 +2617,9 @@ init();
 //  SET-WISE AUCTION
 // ═══════════════════════════════════════════════════════════════
 async function loadSetGroups() {
-  // Exclude: already sold, already unsold (from any source), currently in a live slot
-  const avail = allPlayers.filter(p => !soldMap[p.id] && !unsoldIds.has(p.id));
+  // Exclude only already-sold players.
+  // Unsold players ARE included — admin can re-auction them as part of a set launch.
+  const avail = allPlayers.filter(p => !soldMap[p.id]);
   const groups = {};
   avail.forEach(p => {
     const s = p.set_name || 'Uncategorised';

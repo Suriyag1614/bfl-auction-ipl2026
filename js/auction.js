@@ -772,7 +772,7 @@ function renderLastResult(state) {
     const u = name.toUpperCase();
     const m = [['GUJARAT','GT'],['MUMBAI','MI'],['PUNJAB','PBKS'],['CHENNAI','CSK'],
                ['KOLKATA','KKR'],['DELHI','DC'],['RAJASTHAN','RR'],['SUNRISERS','SRH'],
-               ['ROYAL','RCB'],['LUCKNOW','LSG']].find(([k]) => u.includes(k));
+               ['ROYAL','RCB'],['LUCKNOW','LSG'],['SUPREME','SURA']].find(([k]) => u.includes(k));
     return m ? m[1] : null;
   })(winningTeam);
   const colors   = sold ? (getIPLColors(winCode) || getIPLColors(iplCode)) : null;
@@ -890,8 +890,17 @@ async function renderLivePlayer(state, paused) {
   if (nameEl) nameEl.textContent = p.name;
 
   // Only rebuild meta/flags/stats when player changes (avoid flicker on bid updates)
-  const _samePlayer = el('player-card')?.dataset.renderedFor === String(p.id);
-  if (!_samePlayer && el('player-card')) el('player-card').dataset.renderedFor = String(p.id);
+  // Also treat as "new" when no bids exist — catches same player re-auctioned after cancel
+  const _hasBidsNow = state.current_highest_bid > 0;
+  const _samePlayerRaw = el('player-card')?.dataset.renderedFor === String(p.id);
+  // If same player ID but no bids at all, it's a fresh re-auction — force full reset
+  const _samePlayer = _samePlayerRaw && _hasBidsNow;
+  if (!_samePlayer && el('player-card')) {
+    el('player-card').dataset.renderedFor = String(p.id);
+    // Clear bid input value so it starts fresh on re-auction
+    const inp = el('bid-input');
+    if (inp && !inp.matches(':focus')) { inp.value = ''; }
+  }
 
   // Meta row
   const metaRow = el('player-meta-row');
@@ -958,10 +967,9 @@ async function renderLivePlayer(state, paused) {
     bidInput.min  = newMin;
     bidInput.step = '0.25';
     if (!bidInput.matches(':focus')) {
-      // Always set to base_price when there are no bids (covers new player + after undo)
-      // Always set on new player (first render) — parseFloat('') = NaN which breaks < check
+      // Always reset to base_price when no bids — covers new player, undo, and re-auction after cancel
       const curVal = parseFloat(bidInput.value);
-      if (!hasBid || _samePlayer === false || isNaN(curVal) || curVal < next) {
+      if (!hasBid || !_samePlayer || isNaN(curVal) || curVal < next) {
         bidInput.value = newMin;
       }
     }
@@ -984,11 +992,18 @@ async function renderLivePlayer(state, paused) {
 
   if (isMe) {
     if (bidBtn)  bidBtn.style.display  = 'none';
-    if (undoBtn) undoBtn.style.display = (state.prev_bid_team_purse != null && !paused) ? 'inline-flex' : 'none';
+    // Show undo whenever we are leading and timer hasn't expired
+    const timerExpired = state.bid_timer_end ? (new Date(state.bid_timer_end).getTime() - serverNow()) <= 0 : false;
+    if (undoBtn) {
+      undoBtn.style.display = (!paused && !timerExpired) ? 'inline-flex' : 'none';
+      undoBtn.disabled = false;
+      // Reset armed state text if not currently armed
+      if (!undoBtn._armed) undoBtn.textContent = '↩ Undo';
+    }
     if (bidInput) bidInput.disabled = true;
   } else {
     if (bidBtn)  { bidBtn.style.display = ''; bidBtn.disabled = paused || bidBlocked; }
-    if (undoBtn) undoBtn.style.display = 'none';
+    if (undoBtn) { undoBtn.style.display = 'none'; undoBtn._armed = false; }
     if (bidInput) bidInput.disabled = paused || bidBlocked;
   }
 
@@ -1571,16 +1586,6 @@ function patchSlotCard(slot) {
 async function loadBidHistory(playerId) {
   const wrap = el('bid-history-wrap'); if (!wrap || !playerId) return;
 
-  // Block during live bidding for this exact player
-  const liveNow = currentState?.status === 'live' && currentState?.current_player_id === playerId;
-  if (liveNow) {
-    wrap.innerHTML = `<div class="bid-history bid-history-locked">
-      <span class="bh-lock-icon">🔒</span>
-      <span class="bh-lock-msg">Bid details revealed once this player is sold or unsold</span>
-    </div>`;
-    return;
-  }
-
   try {
     const { data: bids, error } = await sb.from('bid_log')
       .select('bid_amount,bid_at,team:teams(team_name)')
@@ -1588,8 +1593,9 @@ async function loadBidHistory(playerId) {
     if (error) { console.warn('[BidHistory]', error.message); }
 
     if (bids?.length) {
+      const isLive = currentState?.status === 'live' && currentState?.current_player_id === playerId;
       wrap.innerHTML = `<div class="bid-history">
-        <div class="bid-history-title">Bid History <span style="color:var(--muted);font-size:10px;">(${bids.length} bids)</span></div>
+        <div class="bid-history-title">Bid History${isLive ? ' <span style="color:var(--green);font-size:10px;">● LIVE</span>' : ''} <span style="color:var(--muted);font-size:10px;">(${bids.length} bid${bids.length !== 1 ? 's' : ''})</span></div>
         ${bids.map((b,i) => `<div class="bid-history-row${i===0?' bh-latest':''}">
           <span class="bh-rank">#${bids.length - i}</span>
           <span class="bh-team">${_esc(b.team?.team_name||'?')}</span>
@@ -1597,7 +1603,8 @@ async function loadBidHistory(playerId) {
         </div>`).join('')}
       </div>`;
     } else {
-      wrap.innerHTML = `<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">No bid history recorded</div></div>`;
+      const isLive = currentState?.status === 'live' && currentState?.current_player_id === playerId;
+      wrap.innerHTML = `<div class="bid-history"><div class="bid-history-title" style="color:var(--muted);">${isLive ? 'No bids placed yet' : 'No bid history recorded'}</div></div>`;
     }
   } catch(e) { console.warn('[BidHistory]', e.message); wrap.innerHTML = ''; }
 }
@@ -1969,7 +1976,9 @@ function startSetTimer(endMs) {
   }
 
   _setExpired = false; // reset on new set
-  if (Math.abs(endMs - _setTimerEndMs) > 2000) {
+  // If transitioning from sentinel (paused state ~year 9000) to real time, force totalSec recalc
+  const _wasSentinel = _setTimerEndMs >= _SET_TIMER_SENTINEL;
+  if (_wasSentinel || Math.abs(endMs - _setTimerEndMs) > 2000) {
     _setTimerEndMs    = endMs;
     const rawSec      = Math.ceil((endMs - serverNow()) / 1000);
     // Use actual remaining time — no artificial cap (timers can be hours for day windows)
@@ -2089,19 +2098,37 @@ async function placeBid() {
   input.classList.add('bid-success-flash');
   setTimeout(() => input.classList.remove('bid-success-flash'), 600);
   toast('Bid Placed', fmt(amount) + ' — you are leading', 'success');
+  // Force timer to recalculate totalSec from fresh server end time after bid resets timer
+  _timerEndMs = 0; _timerTotalSec = 60;
   _lastStateHash = ''; _lastAppliedStatus = ''; fetchState();
 }
 
 async function undoBid() {
   const btn = el('undo-bid-btn');
-  if (btn && btn._inFlight) return; if (btn) { btn._inFlight = true; btn.disabled = true; btn.textContent = 'Placing…'; }
+  // Two-tap: first tap arms, second tap fires — prevents accidental undo
+  if (!btn._armed) {
+    btn._armed = true;
+    btn.textContent = '?';
+    btn.style.color = 'var(--gold)';
+    setTimeout(() => {
+      if (btn._armed) {
+        btn._armed = false;
+        btn.textContent = '↩ Undo';
+        btn.style.color = '';
+      }
+    }, 2000);
+    return;
+  }
+  btn._armed = false; btn.style.color = '';
+  if (btn && btn._inFlight) return; if (btn) { btn._inFlight = true; btn.disabled = true; btn.textContent = '…'; }
   const { data, error } = await sb.rpc('undo_bid');
-  if (btn) { btn.disabled = false; btn.textContent = '↩ Undo'; }
+  if (btn) { btn._inFlight = false; btn.disabled = false; btn.textContent = '↩ Undo'; }
   if (error || !data?.success) { toast('Cannot Undo', error?.message||data?.error||'Undo not available', 'warn'); return; }
   const bidBtn = el('bid-btn'); if (bidBtn) { bidBtn.style.display = ''; bidBtn.disabled = false; }
   const input  = el('bid-input'); if (input) input.disabled = false;
   if (btn) btn.style.display = 'none';
   toast('Bid Undone', 'Your bid has been reversed', 'info');
+  _timerEndMs = 0; // force timer recalc after undo resets server timer
   _lastStateHash = ''; _lastAppliedStatus = ''; await fetchState();
 }
 
